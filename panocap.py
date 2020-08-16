@@ -86,7 +86,7 @@ class gui():
 		cookie_sandbox_label_widget.grid(row = 1, column = 2)
 		cookie_csrfToken_label_widget = Label(frame_cookies, text="csrfToken", font=("Helvetica", 12))
 		cookie_csrfToken_label_widget.grid(row = 1, column = 3)
-		cookie_yourid_label_widget = Label(frame_cookies, text="Your Cardiff ID", font=("Helvetica", 12))
+		cookie_yourid_label_widget = Label(frame_cookies, text="Your ID", font=("Helvetica", 12))
 		cookie_yourid_label_widget.grid(row = 1, column = 4)		
 		cookie_aspath_widget = Entry(frame_cookies, textvariable=self.cookie_aspath_var, bg = 'black', fg = 'white', insertbackground ='white')
 		cookie_aspath_widget.grid(row = 2, column = 1)
