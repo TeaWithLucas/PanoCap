@@ -451,15 +451,18 @@ class threaders(threading.Thread):
 					sessionid = datas['GetSession']
 					to_print_d("Processing: " + sessionid, widget=self.name)
 					sessionInfo = conn.GetSession(sessionid, self.name)
-					if len(sessionInfo['streams']) > 0:
-						if sessionid in SessionsInfoCSV:
-							for key, value in SessionsInfoCSV.items():
-								if key in sessionInfo:
-									sessionInfo[key] = value
-						SessionsInfo[sessionInfo['SessionGroup']][sessionid] = sessionInfo
-						add_session_row(sessionInfo)
+					if sessionInfo != None:
+						if len(sessionInfo['streams']) > 0:
+							if sessionid in SessionsInfoCSV:
+								for key, value in SessionsInfoCSV.items():
+									if key in sessionInfo:
+										sessionInfo[key] = value
+							SessionsInfo[sessionInfo['SessionGroup']][sessionid] = sessionInfo
+							add_session_row(sessionInfo)
+						else:
+							to_print_d("No streams for: " + sessionid, widget=self.name)
 					else:
-						to_print_d("No streams for: " + sessionid, widget=self.name)
+						to_print_d("Data error for: " + sessionid, widget=self.name)
 				if 'aquire_session' in datas:
 					self.idle = 0
 					to_print(self.name + " - Working", widget=self.lablel)
@@ -560,17 +563,109 @@ class connection():
 		data = self.decode_json(self.decode_gzip(dataraw))
 		results = data['d']['Results']
 		records = {}
+		
+		#print(results)
 
 		for record in results:
-			group = record['FolderName']
-			
-			group = regexgroup(group)
-			if group not in records:
-				records[group] = []
-			#StartTime = jsontots(record['StartTime'])
-			records[group].append({'DeliveryID': record['DeliveryID']})
+			if 'DeliveryID' in record and record['DeliveryID'] != None:
+				DeliveryID = record['DeliveryID']
+				if 'FolderName' in record and record['FolderName'] != None:
+					defaultName = record['FolderName'] 
+				else:
+					defaultName = 'Miscellaneous'
+				print(DeliveryID)
+				print('Processing: ' + DeliveryID + ' in ' + defaultName)
+				window.add_txt('Processing: ' + DeliveryID + ' in ' + defaultName)
+				if 'FolderID' in record:
+					groupAncestorID = self.GetAncestorGroup(record['FolderID'])
+					groupData = self.GetGroupData(groupAncestorID)
+				if groupData == None:
+					group = defaultName
+				else:
+					group = groupData['Name']
+				
+				group = regexgroup(group)
+				window.add_txt('Resolved Name: ' + group)
+				if group not in records:
+					records[group] = []
+				#StartTime = jsontots(record['StartTime'])
+				records[group].append({'DeliveryID': DeliveryID})
+			else:
+				print('Broken record: ')
+				print(record)
 
 		return records
+		
+	def GetAncestorGroup(self, FolderID):
+		headers = self.headers.copy()
+
+		bodydict = 			{"queryParameters":{
+			"query":None,
+			"sortColumn":1,
+			"sortAscending":False,
+			"maxResults":25,
+			"page":0,
+			"startDate":None,
+			"endDate":None,
+			"folderID":FolderID,
+			"bookmarked":False,
+			"getFolderData":True,
+			"isSharedWithMe":False,
+			"includePlaylists":True}
+			}
+			
+
+
+		body = json.dumps(bodydict)
+
+		headers["Host"] = "cardiff.cloud.panopto.eu"
+		headers["Accept"] = "*/*"
+		headers["Referer"] = "https://cardiff.cloud.panopto.eu/Panopto/Pages/Sessions/List.aspx?embedded=0"
+		headers["Content-Type"] = "application/json; charset=utf-8"
+		headers["Content-Length"] = str(len(body))
+		headers["Cache-Control"] = "max-age=0, no-cache"
+		
+		url = "https://cardiff.cloud.panopto.eu/Panopto/Services/Data.svc/GetSessions"
+		
+		dataraw = self.get_data(url=url, headers =headers, data =body)
+		
+		data = self.decode_json(self.decode_gzip(dataraw))
+		
+		
+		if 'd' in data and 'ParentFolderId' in data['d'] and data['d']['ParentFolderId'] != None and data['d']['ParentFolderId'] != "":
+			window.add_txt('ParentFolderId: ' + data['d']['ParentFolderId'])
+			return self.GetAncestorGroup(data['d']['ParentFolderId']) 
+		else:
+			return FolderID
+			
+	def GetGroupData(self, FolderID):
+		headers = self.headers.copy()
+
+		bodydict = {"folderID":FolderID}
+
+		body = json.dumps(bodydict)
+
+		headers["Host"] = "cardiff.cloud.panopto.eu"
+		headers["Accept"] = "*/*"
+		headers["Referer"] = "https://cardiff.cloud.panopto.eu/Panopto/Pages/Sessions/List.aspx?embedded=0"
+		headers["Content-Type"] = "application/json; charset=utf-8"
+		headers["Content-Length"] = str(len(body))
+		headers["Cache-Control"] = "max-age=0, no-cache"
+		
+		url = "https://cardiff.cloud.panopto.eu/Panopto/Services/Data.svc/GetFolderInfo"
+		
+		dataraw = self.get_data(url=url, headers =headers, data =body)
+		
+		data = self.decode_json(self.decode_gzip(dataraw))
+		
+		#print(data)
+		if 'd' in data and 'Name' in data['d'] and data['d']['Name'] != None and data['d']['Name'] != "":
+			window.add_txt('Ancestor Name: ' + data['d']['Name'])
+			return {
+				'Name':data['d']['Name']
+			}
+		else:
+			return None
 
 	def GetSession(self, sessionid, thread="output"):
 
@@ -591,38 +686,53 @@ class connection():
 		dataraw = self.get_data(url=url, data=body, headers = headers)
 
 		data = self.decode_json(self.decode_gzip(dataraw))
+		
+		if 'Delivery' in data:
 
-		#SessionGroup = norm_fn(data['Delivery']['SessionGroupLongName'])
-		SessionGroup = regexgroup(data['Delivery']['SessionGroupLongName'])
-		SessionName = norm_fn(data['Delivery']['SessionName'])
-		SessionAbstract = data['Delivery']['SessionAbstract']
-		StartTime = win2unixts(data['Delivery']['SessionStartTime'])
-		Duration = data['Delivery']['Duration']
-		Timestamps = data['Delivery']['Timestamps']
+			#SessionGroup = norm_fn(data['Delivery']['SessionGroupLongName'])
+			SessionGroup = regexgroup(data['Delivery']['SessionGroupLongName'])
+			
+			if 'SessionGroupPublicID' in data['Delivery']:
+				groupAncestorID = self.GetAncestorGroup(data['Delivery']['SessionGroupPublicID'])
+				groupData = self.GetGroupData(groupAncestorID)
+				if groupData != None:
+					SessionGroup = regexgroup(groupData['Name'])
+			
+			SessionName = norm_fn(data['Delivery']['SessionName'])
+			SessionAbstract = data['Delivery']['SessionAbstract']
+			StartTime = win2unixts(data['Delivery']['SessionStartTime'])
+			Duration = data['Delivery']['Duration']
+			Timestamps = data['Delivery']['Timestamps']
 
-		name = fixsessionname(SessionName, SessionGroup)
+			name = fixsessionname(SessionName, SessionGroup)
 
-		if SessionAbstract == "Presented by":
-			SessionAbstract = name
-		to_print_d("working on: " + name, widget=thread)
-		session = {'SessionID':sessionid, 'SessionName':name, 'SessionGroup':SessionGroup, 'SessionAbstract':SessionAbstract, 'StartTime':StartTime, 'Duration':Duration, 'Timestamps':Timestamps, 'streams':[]}
+			if SessionAbstract == "Presented by":
+				SessionAbstract = name
+			to_print_d("working on: " + name, widget=thread)
+			session = {'SessionID':sessionid, 'SessionName':name, 'SessionGroup':SessionGroup, 'SessionAbstract':SessionAbstract, 'StartTime':StartTime, 'Duration':Duration, 'Timestamps':Timestamps, 'streams':[]}
 
-		for stream in data['Delivery']['Streams']:
-			StreamHttpUrl = stream['StreamHttpUrl']
-			StreamUrl = stream['StreamUrl']
-			StreamTypeName = norm_fn(stream['StreamTypeName'])
-			Tag = norm_fn(stream['Tag'])
-			PublicID = norm_fn(stream['PublicID'])
-			#httpurlshort = StreamHttpUrl[:StreamHttpUrl.index("?")]
-			#ext = httpurlshort[-3:]
-			ext = 'mp4'
-			#DownloadUrl = StreamUrl[:StreamUrl.index(".hls")] + '.vsp.' + ext
-			urlshort = StreamUrl[:StreamUrl.index("?")]
-			DownloadUrl = maxbrurl(urlshort)
-			Folder = SessionGroup + '/' + name
-			Path = Folder + '/' + Tag + '-' +  StreamTypeName + '-' + PublicID + '.' + ext
-			session['streams'].append({'PublicID':PublicID,'Folder':Folder,'Path':Path,'DownloadUrl':DownloadUrl,'Tag':Tag, 'StreamTypeName':StreamTypeName})
-		return session
+			for stream in data['Delivery']['Streams']:
+				StreamHttpUrl = stream['StreamHttpUrl']
+				StreamUrl = stream['StreamUrl']
+				StreamTypeName = norm_fn(stream['StreamTypeName'])
+				Tag = norm_fn(stream['Tag'])
+				PublicID = norm_fn(stream['PublicID'])
+				#httpurlshort = StreamHttpUrl[:StreamHttpUrl.index("?")]
+				#ext = httpurlshort[-3:]
+				ext = 'mp4'
+				#DownloadUrl = StreamUrl[:StreamUrl.index(".hls")] + '.vsp.' + ext
+				urlshort = StreamUrl[:StreamUrl.index("?")]
+				DownloadUrl = maxbrurl(urlshort)
+				Folder = SessionGroup + '/' + name
+				Path = Folder + '/' + Tag + '-' +  StreamTypeName + '-' + PublicID + '.' + ext
+				session['streams'].append({'PublicID':PublicID,'Folder':Folder,'Path':Path,'DownloadUrl':DownloadUrl,'Tag':Tag, 'StreamTypeName':StreamTypeName})
+			return session
+		else:
+			print('Error, invalid repsonse for session: ' + sessionid)
+			if 'ErrorMessage' in data:
+				print('Reason given: ' + data['ErrorMessage'])
+			#print(data)
+			return None
 
 	def GetSessionsInfo(self, groups):
 		to_print_d('Getting Session Info')
