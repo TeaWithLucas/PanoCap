@@ -4,10 +4,12 @@ import re
 import os
 import csv
 import urllib.request
+import socket
 import certifi
 import shutil
 import shlex
 import subprocess
+import tarfile
 import zipfile
 import tempfile 
 import io
@@ -742,24 +744,29 @@ def csvtofile(file, data):
 				csv_writer.writerow({'SessionID': sessionid, 'StartTime': StartTime, 'SessionName': session['SessionName'], 'SessionAbstract': session['SessionAbstract']})
 
 def maxbrurl(url):
-	hls = re.match( r'(.*\.hls)', url).group(1)
-	html = urllib.request.urlopen(url, cafile=cafileMain).read()
-	string =  html.decode("UTF-8").strip()
-	data = string.strip().split("\r\n")
-	maxbitrate = 0 
-	maxurlapp = "xx"
-	for index, item in enumerate(data):
-		#print(item)
-		match = re.match(r'.*BANDWIDTH\=(\d+),.*', item,  flags=re.IGNORECASE|re.UNICODE)
-		if match:
-			bitrate = int(match.group(1))
-			if bitrate > maxbitrate:
-				maxbitrate=bitrate
-				maxurlapp= data[index+1]
-				#print(maxbitrate)
-	maxbitrateurl = hls + '/'  + maxurlapp
-	to_print_d(maxbitrateurl)
-	return maxbitrateurl
+	print(url)
+	matches = re.match( r'(.*\.hls)', url)
+	if matches:
+		hls = matches.group(1)
+		html = urllib.request.urlopen(url).read()
+		string =  html.decode("UTF-8").strip()
+		data = string.strip().split("\r\n")
+		maxbitrate = 0 
+		maxurlapp = "xx"
+		for index, item in enumerate(data):
+			#print(item)
+			match = re.match(r'.*BANDWIDTH\=(\d+),.*', item,  flags=re.IGNORECASE|re.UNICODE)
+			if match:
+				bitrate = int(match.group(1))
+				if bitrate > maxbitrate:
+					maxbitrate=bitrate
+					maxurlapp= data[index+1]
+					#print(maxbitrate)
+		maxbitrateurl = hls + '/'  + maxurlapp
+		to_print_d(maxbitrateurl)
+		return maxbitrateurl
+	else:
+		return url
 
 def json2ts(string):
 	timestamp = ""
@@ -1096,33 +1103,106 @@ def ffmpegexst():
 		getffmpeg()
 
 def getffmpeg():
-
-	url = "http://ffmpeg.zeranoe.com/builds/win64/static/ffmpeg-latest-win64-static.zip"
-
+	window.add_txt('No ffmpeg, downloading')
+	url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+	window.add_txt('Downloading: ' +url)
+	
 	headers = {
-		"Host": "ffmpeg.zeranoe.com",
-		"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:57.0) Gecko/20100101 Firefox/57.0",
-		"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-		"Accept-Language": "en-GB,en;q=0.7,en-US;q=0.3",
 		"Accept-Encoding": "gzip, deflate",
-		"Referer": "http://ffmpeg.zeranoe.com/builds/win64/static/",
-		"Connection": "keep-alive",
-		"Upgrade-Insecure-Requests": "1"
 	}
+	timeout = 30
+	req = urllib.request.Request(url=url)
+	req.addheaders = headers;
+    
+	try:
+		resp = urllib.request.urlopen(req, timeout=timeout)
+        
+		window.add_txt("Downloaded ")
+		print("Downloaded " + resp.url)
+		try: 
+			#extractffmpeg7z(resp.read())
+			extractffmpegzip(resp.read())
+			#extractffmpegtar(resp.read())
+		except tarfile.ReadError as e:
+			print('tarfile ReadError: ' + str(e))
+			window.add_txt('tarfile ReadError: ' + str(e))
+			getffmpegbackup()
+		
+	except urllib.error.HTTPError as e:
+		window.add_txt('HTTPError: ' + str(e.code))
+		getffmpegbackup()
+	except urllib.error.URLError as e:
+		window.add_txt('URLError: ' + str(e.reason))
+		getffmpegbackup()
+	except socket.timeout as e:
+		window.add_txt('Timeout: ' + str(e.reason))
+		getffmpegbackup()
 
-	targetdir = "ffmpeg-latest-win64-static/bin/"
-	req = urllib.request.Request(url=url, headers=headers)
-	resp = urllib.request.urlopen(req, cafile=cafileMain)
-
-	window.add_txt("Downloaded, extracting ffmpeg")
-
-	with zipfile.ZipFile(io.BytesIO(resp.read())) as my_zip_file:
-		for contained_file in my_zip_file.namelist():
+def getffmpegbackup():
+	window.add_txt('Trying backup due to error')
+	url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2020-11-03-12-33/ffmpeg-N-99830-g112fe0ff19-win64-gpl.zip"
+	window.add_txt('Downloading: ' +url)
+	
+	headers = {
+		"Accept-Encoding": "gzip, deflate",
+	}
+	timeout = 30
+	
+	req = urllib.request.Request(url=url)
+	#req.addheaders = headers;
+	try: 
+		resp = urllib.request.urlopen(req, timeout=timeout)
+		window.add_txt("Downloaded ")
+		print("Downloaded " + resp.url)
+		extractffmpegzip(resp.read())
+	except urllib.error.HTTPError as e:
+		print('HTTPError: ' + str(e.code))
+		window.add_txt('HTTPError: ' + str(e.code))
+		exit()
+	except urllib.error.URLError as e:
+		print('URLError: ' + str(e.reason))
+		window.add_txt('URLError: ' + str(e.reason))
+		exit()
+	except socket.timeout as e:
+		print('Timeout: ' + str(e.reason))
+		window.add_txt('Timeout: ' + str(e.reason))
+		exit()
+def extractffmpegzip(binFile):
+	targetdir = "/bin/"
+	window.add_txt("Accessing ZIP")
+	with zipfile.ZipFile(io.BytesIO(binFile)) as zip:
+		window.add_txt("Searching ZIP")
+		for contained_file in zip.namelist():
 			if targetdir in contained_file and  '.exe' in contained_file:
-				my_zip_file.extract(member=contained_file, path='tmp')
+				window.add_txt("Processing: " + contained_file)
+				zip.extract(member=contained_file, path='tmp')
 				shutil.move('tmp/' + contained_file, os.getcwd())
 		shutil.rmtree('tmp')
+	window.add_txt("Extraction complete")
 
+def extractffmpegtar(binFile):
+	targetdir = "/bin/"
+	window.add_txt("Accessing tarfile")
+	with tarfile.open(mode='r|xz', fileobj=io.BytesIO(binFile)) as tar:
+		window.add_txt("Searching tarfile")
+		print(tar.getmembers())
+		for contained_file in tar.getmembers():
+			print(contained_file)
+			if targetdir in contained_file and  '.exe' in contained_file:
+				tar.extract(member=contained_file)
+				shutil.move(contained_file, os.getcwd())
+		#shutil.rmtree('tmp')
+		
+# def extractffmpeg7z(binFile):
+	# filter_pattern = re.compile(r'.*/bin/.*')
+	# window.add_txt("Accessing SevenZipFile")
+	# with py7zr.SevenZipFile(io.BytesIO(binFile), 'r') as archive:		
+		# allfiles = archive.getnames()
+		# window.add_txt("Searching SevenZipFile")
+		# selective_files = [f for f in allfiles if filter_pattern.match(f)]
+		# print(selective_files)
+		# archive.extract(targets=selective_files)
+	
 def createthreads(amount):
 	threads = []
 	for i in range(amount):
