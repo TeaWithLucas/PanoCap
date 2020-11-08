@@ -218,11 +218,11 @@ class gui():
 		self.widgets['btn_start'].config(state = DISABLED)
 		self.set_lbl("Please Wait...")
 		self.repeater()
-		ids = conn.GetSessions()
-		logging.info(ids)
-		#to_print_d(ids)
-		if len(ids) > 0:
-			conn.GetSessionsInfo(ids)
+		records = conn.GetSessions()
+		logging.info(records)
+		#to_print_d(records)
+		if len(records) > 0:
+			conn.GetSessionsInfo(records)
 			
 			self.current_stage = "start"
 			self.setup_next_stage()
@@ -448,16 +448,17 @@ class threaders(threading.Thread):
 				if 'GetSession' in datas:
 					self.idle = 0
 					to_print(self.name + " - Working", widget=self.lablel)
-					sessionid = datas['GetSession']
+					sessionid = datas['GetSession']['sessionid']
+					groupid = datas['GetSession']['groupid']
 					to_print_d("Processing: " + sessionid, widget=self.name)
-					sessionInfo = conn.GetSession(sessionid, self.name)
+					sessionInfo = conn.GetSession(sessionid, groupid, self.name)
 					if sessionInfo != None:
 						if len(sessionInfo['streams']) > 0:
 							if sessionid in SessionsInfoCSV:
 								for key, value in SessionsInfoCSV.items():
 									if key in sessionInfo:
 										sessionInfo[key] = value
-							SessionsInfo[sessionInfo['SessionGroup']][sessionid] = sessionInfo
+							SessionsInfo[sessionInfo['SessionGroupID']][sessionid] = sessionInfo
 							add_session_row(sessionInfo)
 						else:
 							to_print_d("No streams for: " + sessionid, widget=self.name)
@@ -486,52 +487,74 @@ class threaders(threading.Thread):
 					time.sleep(1)
 
 class connection():
+	
+
 	def __init__(self):
-		self.headers = {
-			"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:57.0) Gecko/20100101 Firefox/57.0",
-			"Accept-Language": "en-GB,en;q=0.7,en-US;q=0.3",
-			"Accept-Encoding": "gzip, deflate, br",
-			"X-Requested-With": "XMLHttpRequest",
-			"Connection": "keep-alive"}
-		self.attemps=0
+		self.groups = {'000':{'Name':'Unsorted','AncestorID':'000'}}
+		self.attempts=0
 
 	def set_cookies(self, cookies):
-		self.headers["cookie"] = cookies
+		self.cookies = cookies
+		
+	def get_data(self, url, headers={"Content-Type": "application/json; charset=utf-8"}, data=None):
+		databin = data.encode('utf-8')		
+		
+		headers["cookie"] = self.cookies		
 
+		req = urllib.request.Request(url=url, headers=headers, data=databin)
+		#print(req.headers)
+		
+		worked = False
+		attempts = 0;
+		errtxt = ''
+		while(worked == False and attempts < 1):
+			try:
+				resp = urllib.request.urlopen(req, cafile=cafileMain)
+				worked = True
+			except urllib.error.HTTPError as e:
+				errtxt = f'HTTPError: {e.code}, {e.reason}'
+				print(errtxt)
+				window.add_txt(errtxt)
+			attempts+=1
+		outcome = 'Success' if worked else 'Failure'
+		print(f"HTTP Request Result: {outcome}, Attempts: {attempts}")
+		if(not worked or attempts > 1):
+			logging.debug(f"HTTP Request Result: {outcome}, Attempts: {attempts}")
+			logging.debug(req.headers)
+			logging.debug(errtxt)
+		if worked:
+			return resp.read()
+		else:
+			return None
+		
 	def TestConnection(self):
-		self.attemps+=1
+		self.attempts+=1
 
-		window.add_txt('Testing Cookies: Attempt ' + str(self.attemps))
-		headers = self.headers.copy()
+		window.add_txt('Testing Cookies: Attempt ' + str(self.attempts))
 
 		bodydict = {"queryParameters":{"query":None, "page":0, "startDate":None,"endDate":None}}
-
-		body = json.dumps(bodydict)
-
-		headers["Host"] = "cardiff.cloud.panopto.eu"
-		headers["Accept"] = "*/*"
-		headers["Referer"] = "https://cardiff.cloud.panopto.eu/Panopto/Pages/Sessions/List.aspx?embedded=0"
-		headers["Content-Type"] = "application/json; charset=utf-8"
-		headers["Content-Length"] = str(len(body))
-		headers["Cache-Control"] = "max-age=0, no-cache"
-
 		url = "https://cardiff.cloud.panopto.eu/Panopto/Services/Data.svc/GetSessions"
+		
+		headers={"Content-Type": "application/json; charset=utf-8"}
 
-		dataraw = self.get_data(url=url, headers =headers, data =body)
-
-		data = self.decode_json(self.decode_gzip(dataraw))
-		results = data['d']['Results']
-
+		dataraw = self.get_data(url=url, headers=headers, data =json.dumps(bodydict))
+		
 		worked = False
-
-		if results and len(results) > 0:
-			worked = True
+		
+		if dataraw != None:
+			data = self.decode_json(dataraw)
+			results = data['d']['Results']
+			#print(data)
+			
+			if results and len(results) > 0:
+				worked = True
 
 		return worked
-
+	
+	
+	
 	def GetSessions(self):
 		window.add_txt('Getting Sessions')
-		headers = self.headers.copy()
 
 		bodydict = {"queryParameters":{
 			"query":None,
@@ -546,23 +569,16 @@ class connection():
 			"isSharedWithMe":False,
 			"includePlaylists":True
 			}}
-
-		body = json.dumps(bodydict)
-
-		headers["Host"] = "cardiff.cloud.panopto.eu"
-		headers["Accept"] = "*/*"
-		headers["Referer"] = "https://cardiff.cloud.panopto.eu/Panopto/Pages/Sessions/List.aspx?embedded=0"
-		headers["Content-Type"] = "application/json; charset=utf-8"
-		headers["Content-Length"] = str(len(body))
-		headers["Cache-Control"] = "max-age=0, no-cache"
-
 		url = "https://cardiff.cloud.panopto.eu/Panopto/Services/Data.svc/GetSessions"
+		
+		headers={"Content-Type": "application/json; charset=utf-8"}
 
-		dataraw = self.get_data(url=url, headers =headers, data =body)
+		dataraw = self.get_data(url=url, headers=headers, data=json.dumps(bodydict))
 
-		data = self.decode_json(self.decode_gzip(dataraw))
+		data = self.decode_json(dataraw)
 		results = data['d']['Results']
 		records = {}
+		
 		
 		#print(results)
 
@@ -570,35 +586,63 @@ class connection():
 			if 'DeliveryID' in record and record['DeliveryID'] != None:
 				DeliveryID = record['DeliveryID']
 				if 'FolderName' in record and record['FolderName'] != None:
-					defaultName = record['FolderName'] 
+					defaultName = regexgroup(record['FolderName']) 
 				else:
-					defaultName = 'Miscellaneous'
-				print(DeliveryID)
+					defaultName = 'Unsorted'
+				#print(DeliveryID)
+				
 				print('Processing: ' + DeliveryID + ' in ' + defaultName)
 				window.add_txt('Processing: ' + DeliveryID + ' in ' + defaultName)
-				if 'FolderID' in record:
-					groupAncestorID = self.GetAncestorGroup(record['FolderID'])
-					groupData = self.GetGroupData(groupAncestorID)
-				if groupData == None:
-					group = defaultName
-				else:
-					group = groupData['Name']
 				
-				group = regexgroup(group)
-				window.add_txt('Resolved Name: ' + group)
-				if group not in records:
-					records[group] = []
+				if 'FolderID' in record:
+					groupID = record['FolderID']
+				elif defaultName != 'Unsorted':
+					errtxt = f'Error: No group ID, defaultName: {defaultName}, attempting reverse lookup'
+					print(errtxt)
+					window.add_txt(errtxt)
+					
+					for key, item in self.groups.items():
+						print(item['Name'])
+						if item['Name'] == defaultName:
+							groupID = item['AncestorID']
+					if groupID == None:
+						errtxt = f'Reverse lookup failed'
+						print(errtxt)
+						window.add_txt(errtxt)
+						groupID = '000'
+				else: 
+					errtxt = f'Error: No group ID, defaultName: {defaultName}'
+					print(errtxt)
+					window.add_txt(errtxt)
+					groupID = '000'
+					
+				if groupID not in self.groups:
+					groupAncestorID = self.GetAncestorGroup(groupID)
+					self.groups[groupID] = self.GetGroupData(groupAncestorID)
+					if self.groups[groupID]['Name'] == None:
+						errtxt = f'Error: No empty group name, defaulting to: {defaultName}'
+						print(errtxt)
+						window.add_txt(errtxt)
+						self.groups[groupID]['Name'] = defaultName
+					if groupAncestorID not in self.groups:
+						self.groups[groupAncestorID] = self.groups[groupID]
+				else:
+					print(groupID)
+					groupAncestorID = self.groups[groupID]['AncestorID']
+				groupID = groupAncestorID
+					
+				
+				if groupID not in records:
+					records[groupID] = []
 				#StartTime = jsontots(record['StartTime'])
-				records[group].append({'DeliveryID': DeliveryID})
+				records[groupID].append({'DeliveryID': DeliveryID})
 			else:
 				print('Broken record: ')
 				print(record)
-
-		return records
+		print(self.groups)
+		return {key: records[key] for key in sorted(records.keys(), key=lambda item: self.groups[item]['Name'])}
 		
 	def GetAncestorGroup(self, FolderID):
-		headers = self.headers.copy()
-
 		bodydict = 			{"queryParameters":{
 			"query":None,
 			"sortColumn":1,
@@ -612,133 +656,113 @@ class connection():
 			"getFolderData":True,
 			"isSharedWithMe":False,
 			"includePlaylists":True}
-			}
-			
-
-
-		body = json.dumps(bodydict)
-
-		headers["Host"] = "cardiff.cloud.panopto.eu"
-		headers["Accept"] = "*/*"
-		headers["Referer"] = "https://cardiff.cloud.panopto.eu/Panopto/Pages/Sessions/List.aspx?embedded=0"
-		headers["Content-Type"] = "application/json; charset=utf-8"
-		headers["Content-Length"] = str(len(body))
-		headers["Cache-Control"] = "max-age=0, no-cache"
-		
+			}		
 		url = "https://cardiff.cloud.panopto.eu/Panopto/Services/Data.svc/GetSessions"
 		
-		dataraw = self.get_data(url=url, headers =headers, data =body)
+		headers={"Content-Type": "application/json; charset=utf-8"}
 		
-		data = self.decode_json(self.decode_gzip(dataraw))
+		dataraw = self.get_data(url=url, headers=headers, data=json.dumps(bodydict))
 		
+		if dataraw != None:
 		
-		if 'd' in data and 'ParentFolderId' in data['d'] and data['d']['ParentFolderId'] != None and data['d']['ParentFolderId'] != "":
-			window.add_txt('ParentFolderId: ' + data['d']['ParentFolderId'])
-			return self.GetAncestorGroup(data['d']['ParentFolderId']) 
+			data = self.decode_json(dataraw)
+			
+			
+			if 'd' in data and 'ParentFolderId' in data['d'] and data['d']['ParentFolderId'] != None and data['d']['ParentFolderId'] != "":
+				window.add_txt('ParentFolderId: ' + data['d']['ParentFolderId'])
+				return self.GetAncestorGroup(data['d']['ParentFolderId']) 
+			else:
+				return FolderID
 		else:
 			return FolderID
 			
 	def GetGroupData(self, FolderID):
-		headers = self.headers.copy()
-
-		bodydict = {"folderID":FolderID}
-
-		body = json.dumps(bodydict)
-
-		headers["Host"] = "cardiff.cloud.panopto.eu"
-		headers["Accept"] = "*/*"
-		headers["Referer"] = "https://cardiff.cloud.panopto.eu/Panopto/Pages/Sessions/List.aspx?embedded=0"
-		headers["Content-Type"] = "application/json; charset=utf-8"
-		headers["Content-Length"] = str(len(body))
-		headers["Cache-Control"] = "max-age=0, no-cache"
-		
+		bodydict = {"folderID":FolderID}		
 		url = "https://cardiff.cloud.panopto.eu/Panopto/Services/Data.svc/GetFolderInfo"
 		
-		dataraw = self.get_data(url=url, headers =headers, data =body)
+		headers={"Content-Type": "application/json; charset=utf-8"}
 		
-		data = self.decode_json(self.decode_gzip(dataraw))
+		dataraw = self.get_data(url=url, headers=headers, data=json.dumps(bodydict))
 		
-		#print(data)
-		if 'd' in data and 'Name' in data['d'] and data['d']['Name'] != None and data['d']['Name'] != "":
-			window.add_txt('Ancestor Name: ' + data['d']['Name'])
-			return {
-				'Name':data['d']['Name']
-			}
-		else:
-			return None
-
-	def GetSession(self, sessionid, thread="output"):
-
-		#print("GetSession")
-		headers = self.headers.copy()
-
-		body = "deliveryId=" + sessionid + "&invocationId=&isLiveNotes=false&refreshAuthCookie=true&isActiveBroadcast=false&isEditing=false&isKollectiveAgentInstalled=false&isEmbed=false&responseType=json"
-	
-		headers["Host"] = "cardiff.cloud.panopto.eu"
-		headers["Accept"] = "application/json, text/javascript, */*; q=0.01"
-		headers["Referer"] = "https://cardiff.cloud.panopto.eu/Panopto/Pages/Viewer.aspx?id=d5f230eb-7efc-4609-980c-660ee51e1858"
-		headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
-		headers["Content-Length"] = str(len(body))
-		headers["Pragma"] = "no-cache"
-
-		url = 'https://cardiff.cloud.panopto.eu/Panopto/Pages/Viewer/DeliveryInfo.aspx'
-
-		dataraw = self.get_data(url=url, data=body, headers = headers)
-
-		data = self.decode_json(self.decode_gzip(dataraw))
-		
-		if 'Delivery' in data:
-
-			#SessionGroup = norm_fn(data['Delivery']['SessionGroupLongName'])
-			SessionGroup = regexgroup(data['Delivery']['SessionGroupLongName'])
+		if dataraw != None:
+			data = self.decode_json(dataraw)
 			
-			if 'SessionGroupPublicID' in data['Delivery']:
-				groupAncestorID = self.GetAncestorGroup(data['Delivery']['SessionGroupPublicID'])
-				groupData = self.GetGroupData(groupAncestorID)
-				if groupData != None:
-					SessionGroup = regexgroup(groupData['Name'])
-			
-			SessionName = norm_fn(data['Delivery']['SessionName'])
-			SessionAbstract = data['Delivery']['SessionAbstract']
-			StartTime = win2unixts(data['Delivery']['SessionStartTime'])
-			Duration = data['Delivery']['Duration']
-			Timestamps = data['Delivery']['Timestamps']
-
-			name = fixsessionname(SessionName, SessionGroup)
-
-			if SessionAbstract == "Presented by":
-				SessionAbstract = name
-			to_print_d("working on: " + name, widget=thread)
-			session = {'SessionID':sessionid, 'SessionName':name, 'SessionGroup':SessionGroup, 'SessionAbstract':SessionAbstract, 'StartTime':StartTime, 'Duration':Duration, 'Timestamps':Timestamps, 'streams':[]}
-
-			for stream in data['Delivery']['Streams']:
-				StreamHttpUrl = stream['StreamHttpUrl']
-				StreamUrl = stream['StreamUrl']
-				StreamTypeName = norm_fn(stream['StreamTypeName'])
-				Tag = norm_fn(stream['Tag'])
-				PublicID = norm_fn(stream['PublicID'])
-				#httpurlshort = StreamHttpUrl[:StreamHttpUrl.index("?")]
-				#ext = httpurlshort[-3:]
-				ext = 'mp4'
-				#DownloadUrl = StreamUrl[:StreamUrl.index(".hls")] + '.vsp.' + ext
-				urlshort = StreamUrl[:StreamUrl.index("?")]
-				DownloadUrl = maxbrurl(urlshort)
-				Folder = SessionGroup + '/' + name
-				Path = Folder + '/' + Tag + '-' +  StreamTypeName + '-' + PublicID + '.' + ext
-				session['streams'].append({'PublicID':PublicID,'Folder':Folder,'Path':Path,'DownloadUrl':DownloadUrl,'Tag':Tag, 'StreamTypeName':StreamTypeName})
-			return session
-		else:
-			print('Error, invalid repsonse for session: ' + sessionid)
-			if 'ErrorMessage' in data:
-				print('Reason given: ' + data['ErrorMessage'])
 			#print(data)
+			if 'd' in data and 'Name' in data['d'] and data['d']['Name'] != None and data['d']['Name'] != "":
+				window.add_txt('Ancestor Name: ' + data['d']['Name'])
+				return {
+					'Name':regexgroup(data['d']['Name']), 
+					'AncestorID':FolderID
+					
+				}
+			else:
+				return None
+		else:
 			return None
 
-	def GetSessionsInfo(self, groups):
+	def GetSession(self, sessionid, groupid, thread="output"):
+		body = "deliveryId=" + sessionid + "&invocationId=&isLiveNotes=false&refreshAuthCookie=false&isActiveBroadcast=false&isEditing=false&isKollectiveAgentInstalled=false&isEmbed=false&responseType=json"
+		
+		url = 'https://cardiff.cloud.panopto.eu/Panopto/Pages/Viewer/DeliveryInfo.aspx'
+		
+		headers={"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"}
+		
+		dataraw = self.get_data(url=url, headers=headers, data=body)
+		
+		if dataraw != None:
+	
+			data = self.decode_json(dataraw)
+		
+			if 'Delivery' in data:
+
+				#SessionGroup = norm_fn(data['Delivery']['SessionGroupLongName'])
+				SessionGroupID = groupid
+				SessionGroup = self.groups[groupid]['Name']
+				
+				SessionName = norm_fn(data['Delivery']['SessionName'])
+				SessionAbstract = data['Delivery']['SessionAbstract']
+				StartTime = win2unixts(data['Delivery']['SessionStartTime'])
+				Duration = data['Delivery']['Duration']
+				Timestamps = data['Delivery']['Timestamps']
+
+				name = fixsessionname(SessionName, SessionGroup)
+
+				if SessionAbstract == "Presented by":
+					SessionAbstract = name
+				to_print_d("working on: " + name, widget=thread)
+				session = {'SessionID':sessionid, 'SessionName':name, 'SessionGroupID':SessionGroupID, 'SessionGroup':SessionGroup, 'SessionAbstract':SessionAbstract, 'StartTime':StartTime, 'Duration':Duration, 'Timestamps':Timestamps, 'streams':[]}
+
+				for stream in data['Delivery']['Streams']:
+					StreamHttpUrl = stream['StreamHttpUrl']
+					StreamUrl = stream['StreamUrl']
+					StreamTypeName = norm_fn(stream['StreamTypeName'])
+					Tag = norm_fn(stream['Tag'])
+					PublicID = norm_fn(stream['PublicID'])
+					#httpurlshort = StreamHttpUrl[:StreamHttpUrl.index("?")]
+					#ext = httpurlshort[-3:]
+					ext = 'mp4'
+					#DownloadUrl = StreamUrl[:StreamUrl.index(".hls")] + '.vsp.' + ext
+					urlshort = StreamUrl[:StreamUrl.index("?")]
+					DownloadUrl = maxbrurl(urlshort)
+					if DownloadUrl != None:
+						Folder = SessionGroup + '/' + name
+						Path = Folder + '/' + Tag + '-' +  StreamTypeName + '-' + PublicID + '.' + ext
+						session['streams'].append({'PublicID':PublicID,'Folder':Folder,'Path':Path,'DownloadUrl':DownloadUrl,'Tag':Tag, 'StreamTypeName':StreamTypeName})
+				return session
+			else:
+				print('Error, invalid repsonse for session: ' + sessionid)
+				if 'ErrorMessage' in data:
+					print('Reason given: ' + data['ErrorMessage'])
+				#print(data)
+				return None
+		else:
+			return None
+
+	def GetSessionsInfo(self, records):
 		to_print_d('Getting Session Info')
 		global queueLock, workQueue, SessionsInfo, SessionsInfoCSV, seshfile, threads
 		SessionsInfoOld = {}
-		seshfile="sessionstore.txt"
+		seshfile="sessionstore.json"
 		if os.path.exists(seshfile):
 			window.add_txt('Checking for previous data downloaded')
 			with open(seshfile, "r") as text_file:
@@ -756,20 +780,21 @@ class connection():
 						StartTime = time.mktime(datetime.datetime.strptime(row['StartTime'], '%Y-%m-%d %H-%M').timetuple())
 						SessionsInfoCSV[row['SessionID']] = {'StartTime':StartTime,'SessionName':row['SessionName'], 'SessionAbstract':row['SessionAbstract']}
 		queueLock.acquire()
-		for group, sessionids in groups.items():
-			#print('Adding to queue for Group: ' + group)
-			window.add_txt('Adding to queue for Group: ' + group)
-			rowdata = (group, "Excluded")
-			if group_included(group):
-				rowdata = (group, "Included")
-			window.add_node('tree1', iid=group, text='', row=rowdata, index='end')
-			SessionsInfo[group] = {}
+		for groupid, sessionids in records.items():
+			group = self.groups[groupid]
+			#print('Adding to queue for Group: ' + group['Name'])
+			window.add_txt('Adding to queue for Group: ' + group['Name'])
+			rowdata = (group['Name'], "Excluded")
+			if group_included(group['Name']):
+				rowdata = (group['Name'], "Included")
+			window.add_node('tree1', iid=groupid, text='', row=rowdata, index='end')
+			SessionsInfo[groupid] = {}
 			for sessionidtmp in sessionids:
 				sessionid = sessionidtmp['DeliveryID']
 				window.add_txt(sessionid + ": ", end="")
-				if group in SessionsInfoOld and sessionid in SessionsInfoOld[group]:
+				if groupid in SessionsInfoOld and sessionid in SessionsInfoOld[groupid]:
 					window.add_txt('Using previous data')
-					sessionInfoOld = SessionsInfoOld[group][sessionid]
+					sessionInfoOld = SessionsInfoOld[groupid][sessionid]
 					if sessionid in SessionsInfoCSV:
 						sessionInfoOld['SessionName'] = SessionsInfoCSV[sessionid]['SessionName']
 						sessionInfoOld['SessionAbstract'] = SessionsInfoCSV[sessionid]['SessionAbstract']
@@ -779,35 +804,31 @@ class connection():
 							sessionInfoOld['StartTime'] = str(SessionsInfoCSV[sessionid]['StartTime'])
 
 								
-					SessionsInfo[group][sessionid] = sessionInfoOld
-					add_session_row(sessionInfoOld, group=group)
+					SessionsInfo[groupid][sessionid] = sessionInfoOld
+					add_session_row(sessionInfoOld)
 				else:
 					window.add_txt('Using new data')
-					workQueue.put({'GetSession': sessionid})		
+					workQueue.put({'GetSession': {'sessionid':sessionid, 'groupid':groupid}})		
 		queueLock.release()
 		window.add_txt('Processing queue')
 		
 
-	def get_data(self, url, headers=None, data=None):
-		databin = data.encode('utf-8')
-		#print (headers)
 
-		req = urllib.request.Request(url=url, headers=headers, data=databin)
-		resp = urllib.request.urlopen(req, cafile=cafileMain)
-		return resp.read()
 
 	def decode_json(self, string):
 		data = json.loads(string)
 		return data
 
 	def decode_gzip(self, data_bytes):
-		data_decompressed=zlib.decompress(data_bytes, zlib.MAX_WBITS|16)
-		data = data_decompressed.decode("utf-8")
-		return data
+		try:
+			data_decompressed=zlib.decompress(data_bytes, zlib.MAX_WBITS|16)
+			data = data_decompressed.decode("utf-8")
+			return data
+		except zlib.error as e: 
+			print(f'zlib.error: {e}')
+			return None
 
-def add_session_row(sessionInfo, group=None):
-	if not group:
-		group = str(sessionInfo['SessionGroup'])
+def add_session_row(sessionInfo):
 	logging.info(json.dumps(sessionInfo))
 	SessionID = str(sessionInfo['SessionID'])
 	SessionName = str(sessionInfo['SessionName'])
@@ -819,7 +840,7 @@ def add_session_row(sessionInfo, group=None):
 	Duration = str(int(float(sessionInfo['Duration'])/60)) + 'mins'
 	streams = len(sessionInfo['streams'])
 	row = (SessionName,SessionAbstract,StartTime,Duration,streams)
-	window.add_node('tree1', parent=group, text=SessionID, row=row)
+	window.add_node('tree1', parent=sessionInfo['SessionGroupID'], text=SessionID, row=row)
 
 
 def to_print_d(inputstr, widget="output"):
@@ -837,13 +858,13 @@ def to_print(inputstr, widget="output", date=False):
 def jsontofile(file, data):
 	with open(file, "w") as text_file:
 		window.add_txt('Dumping JSON Data')
-		encodedinfo = json.dumps(data)
+		encodedinfo = json.dumps(data, sort_keys=True, indent=4, separators=(',', ': '))
 		text_file.write(encodedinfo)
 
 def csvtofile(file, data):
 	with open(file, 'w') as csv_file:
-		fieldnames=['StartTime', 'SessionName','SessionAbstract','SessionID']
-		csv_writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+		fieldnames=['StartTime', 'SessionName','SessionAbstract','SessionID', 'SessionGroup']
+		csv_writer = csv.DictWriter(csv_file, dialect='excel', fieldnames=fieldnames)
 		window.add_txt('Dumping CSV')
 		csv_writer.writeheader()
 		for groupname, group in data.items():
@@ -851,32 +872,36 @@ def csvtofile(file, data):
 				StartTime = '2000-01-01 00-00'
 				if float(session['StartTime']) > 0:
 					StartTime = datetime.datetime.fromtimestamp(float(session['StartTime'])).strftime('%Y-%m-%d %H-%M')
-				csv_writer.writerow({'SessionID': sessionid, 'StartTime': StartTime, 'SessionName': session['SessionName'], 'SessionAbstract': session['SessionAbstract']})
+				csv_writer.writerow({'SessionID': sessionid, 'StartTime': StartTime, 'SessionName': session['SessionName'], 'SessionAbstract': session['SessionAbstract'], 'SessionGroup': session['SessionGroup']})
 
 def maxbrurl(url):
 	print(url)
-	matches = re.match( r'(.*\.hls)', url)
-	if matches:
-		hls = matches.group(1)
-		html = urllib.request.urlopen(url).read()
-		string =  html.decode("UTF-8").strip()
-		data = string.strip().split("\r\n")
-		maxbitrate = 0 
-		maxurlapp = "xx"
-		for index, item in enumerate(data):
-			#print(item)
-			match = re.match(r'.*BANDWIDTH\=(\d+),.*', item,  flags=re.IGNORECASE|re.UNICODE)
-			if match:
-				bitrate = int(match.group(1))
-				if bitrate > maxbitrate:
-					maxbitrate=bitrate
-					maxurlapp= data[index+1]
-					#print(maxbitrate)
-		maxbitrateurl = hls + '/'  + maxurlapp
-		to_print_d(maxbitrateurl)
-		return maxbitrateurl
+	matcheswmv = re.match( r'(.*)\.wmv', url)
+	if matcheswmv:
+		return None
 	else:
-		return url
+		matcheshls = re.match( r'(.*\.hls)', url)
+		if matcheshls:
+			hls = matcheshls.group(1)
+			html = urllib.request.urlopen(url).read()
+			string =  html.decode("UTF-8").strip()
+			data = string.strip().split("\r\n")
+			maxbitrate = 0 
+			maxurlapp = "xx"
+			for index, item in enumerate(data):
+				#print(item)
+				match = re.match(r'.*BANDWIDTH\=(\d+),.*', item,  flags=re.IGNORECASE|re.UNICODE)
+				if match:
+					bitrate = int(match.group(1))
+					if bitrate > maxbitrate:
+						maxbitrate=bitrate
+						maxurlapp= data[index+1]
+						#print(maxbitrate)
+			maxbitrateurl = hls + '/'  + maxurlapp
+			to_print_d(maxbitrateurl)
+			return maxbitrateurl
+		else:
+			return url
 
 def json2ts(string):
 	timestamp = ""
@@ -1002,7 +1027,7 @@ def get_download_locs(group, name):
 def check_download_flrs(group):
 	x265_loc, raw_loc, meta_loc = get_download_flrs(group)
 
-	chkflexst(x265_loc)
+	#chkflexst(x265_loc)
 	chkflexst(raw_loc)
 	chkflexst(meta_loc)
 
@@ -1020,7 +1045,7 @@ def get_download_flrs(group):
 def group_included(group):
 	global excluded_groups, only_groups
 	included = False
-	print(group.lower(), excluded_groups)
+	#print(group.lower(), excluded_groups)
 	if (len(only_groups) > 0 and group in only_groups) or (len(only_groups) < 1 and group not in excluded_groups):
 		included = True
 	return included
@@ -1039,9 +1064,10 @@ def get_session(file):
 	return {'name':videoname, 'path':path, 'group':groupname, 'grouppath':grouppath, 'media':files}
 
 def aquire_sessions(groups):
-	global  queueLock, workQueue, threads
+	global  queueLock, workQueue, threads, conn
 	queueLock.acquire()
-	for group, sessions in groups.items():
+	for groupid, sessions in groups.items():
+		group = conn.groups[groupid]['Name']
 		for sessionid, session in sessions.items():
 			if group_included(group):
 				check_download_flrs(group)
@@ -1051,7 +1077,8 @@ def aquire_sessions(groups):
 def compress_sessions(groups):
 	global excluded_groups, queueLock, workQueue, threads
 	queueLock.acquire()	
-	for group, sessions in groups.items():
+	for groupid, sessions in groups.items():
+		group = conn.groups[groupid]['Name']
 		for sessionid, session in sessions.items():
 			if group_included(group):
 				check_download_flrs(group)
@@ -1217,12 +1244,8 @@ def getffmpeg():
 	url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 	window.add_txt('Downloading: ' +url)
 	
-	headers = {
-		"Accept-Encoding": "gzip, deflate",
-	}
 	timeout = 30
 	req = urllib.request.Request(url=url)
-	req.addheaders = headers;
     
 	try:
 		resp = urllib.request.urlopen(req, timeout=timeout)
@@ -1253,13 +1276,9 @@ def getffmpegbackup():
 	url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2020-11-03-12-33/ffmpeg-N-99830-g112fe0ff19-win64-gpl.zip"
 	window.add_txt('Downloading: ' +url)
 	
-	headers = {
-		"Accept-Encoding": "gzip, deflate",
-	}
 	timeout = 30
 	
 	req = urllib.request.Request(url=url)
-	#req.addheaders = headers;
 	try: 
 		resp = urllib.request.urlopen(req, timeout=timeout)
 		window.add_txt("Downloaded ")
@@ -1372,7 +1391,7 @@ defaults['StreamTypes'] = {'Archival': 'Camera', 'Streaming':'Projector'}
 global basedir, netloc, excluded_groups, only_groups, group_regex, istest, window, queueLock, exitFlag, pauseFlag, csvfile, seshfile, workQueue, threads, win_outputs, SessionsInfo, processes
 
 get_settings(settingsfl)
-print (settings)
+#print (settings)
 
 basedir = settings['Directories']['basedir']
 netloc = settings['Directories']['netloc']
