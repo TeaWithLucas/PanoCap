@@ -386,8 +386,8 @@ class gui():
 			count+=1
 
 	def add_node(self, widget, parent='', iid=None, row=(), text=None, index=0):
-		print(self.widgets[widget])
-		print(iid)
+		#print(self.widgets[widget])
+		#print(iid)
 		if self.widgets[widget].exists(iid):
 			self.widgets[widget].item(iid, text=text, values=row)
 		else:
@@ -530,7 +530,11 @@ class connection():
 		self.cookies = cookies
 		
 	def get_data(self, url, headers={"Content-Type": "application/json; charset=utf-8"}, data=None):
-		databin = data.encode('utf-8')		
+	
+		if data != None:
+			databin = data.encode('utf-8')
+		else:
+			databin = "".encode('utf-8')	
 		
 		headers["cookie"] = self.cookies		
 
@@ -635,7 +639,7 @@ class connection():
 					window.add_txt(errtxt)
 					
 					for key, item in self.groups.items():
-						print(item['Name'])
+						#print(item['Name'])
 						if item['Name'] == defaultName:
 							groupID = item['AncestorID']
 					if groupID == None:
@@ -764,7 +768,36 @@ class connection():
 					SessionAbstract = name
 				to_print_d("working on: " + name, widget=thread)
 				session = {'SessionID':sessionid, 'SessionName':name, 'SessionGroupID':SessionGroupID, 'SessionGroup':SessionGroup, 'SessionAbstract':SessionAbstract, 'StartTime':StartTime, 'Duration':Duration, 'Timestamps':Timestamps, 'streams':[]}
-
+				
+				if data['Delivery']['IsPurgedEncode']:
+					embeddedurlmatches = re.match(r'.*src="(.*?)".*', data['EmbedUrl'],  flags=re.IGNORECASE|re.UNICODE)
+					if(embeddedurlmatches):
+						embeddedurl = embeddedurlmatches.group(1)
+						print(embeddedurl)
+						html = conn.get_data(embeddedurl, headers={"Content-Type": "text/plain"}).decode("UTF-8", errors='backslashreplace')
+						#print(html)
+						videourlmatch = re.search(r'"VideoUrl":"(.*?)"', html,  flags=re.IGNORECASE|re.UNICODE)
+						#print(videourlmatch)
+						if videourlmatch:
+							videourl = videourlmatch.group(1).replace("\\", "")
+							#print(videourlmatch.group(1))
+							
+							StreamHttpUrl = videourl
+							StreamUrl = videourl
+							StreamTypeName = 'Encoded'
+							Tag = 'NoTag'
+							PublicID = norm_fn(videourl)
+							#httpurlshort = StreamHttpUrl[:StreamHttpUrl.index("?")]
+							#ext = httpurlshort[-3:]
+							ext = 'mp4'
+							#DownloadUrl = StreamUrl[:StreamUrl.index(".hls")] + '.vsp.' + ext
+							#urlshort = StreamUrl[:StreamUrl.index("?")]
+							DownloadUrl = processurl(StreamUrl)
+							if DownloadUrl != None:
+								Folder = SessionGroup + '/' + name
+								Path = Folder + '/' + Tag + '-' +  StreamTypeName + '-' + PublicID + '.' + ext
+								session['streams'].append({'PublicID':PublicID,'Folder':Folder,'Path':Path,'DownloadUrl':DownloadUrl,'Tag':Tag, 'StreamTypeName':StreamTypeName})
+				#else:
 				for stream in data['Delivery']['Streams']:
 					StreamHttpUrl = stream['StreamHttpUrl']
 					StreamUrl = stream['StreamUrl']
@@ -776,7 +809,7 @@ class connection():
 					ext = 'mp4'
 					#DownloadUrl = StreamUrl[:StreamUrl.index(".hls")] + '.vsp.' + ext
 					urlshort = StreamUrl[:StreamUrl.index("?")]
-					DownloadUrl = maxbrurl(urlshort)
+					DownloadUrl = processurl(urlshort)
 					if DownloadUrl != None:
 						Folder = SessionGroup + '/' + name
 						Path = Folder + '/' + Tag + '-' +  StreamTypeName + '-' + PublicID + '.' + ext
@@ -864,7 +897,7 @@ class connection():
 
 def add_session_row(sessionInfo, groupid):
 	logging.info(json.dumps(sessionInfo))
-	print(groupid)
+	#print(groupid)
 	SessionID = str(sessionInfo['SessionID'])
 	SessionName = str(sessionInfo['SessionName'])
 	SessionAbstract = str(sessionInfo['SessionAbstract'])
@@ -909,42 +942,50 @@ def csvtofile(file, data):
 					StartTime = datetime.datetime.fromtimestamp(float(session['StartTime'])).strftime('%Y-%m-%d %H-%M')
 				csv_writer.writerow({'SessionID': sessionid, 'StartTime': StartTime, 'SessionName': session['SessionName'], 'SessionAbstract': session['SessionAbstract'], 'SessionGroup': session['SessionGroup']})
 
-def maxbrurl(url):
+def processurl(url):
 	print(url)
 	matcheswmv = re.match( r'(.*)\.wmv', url)
 	if matcheswmv:
-		return None
+		return processwmv(matcheswmv)
+
 	else:
 		matcheshls = re.match( r'(.*\.hls)', url)
 		if matcheshls:
-			hls = matcheshls.group(1)
-			html = urllib.request.urlopen(url).read()
-			string =  html.decode("UTF-8").strip()
-			data = string.strip().splitlines()
-			print(data)
-			maxbitrate = 0 
-			maxurlapp = "xx"
-			for index, item in enumerate(data):
-				#print(item)
-				match = re.match(r'.*BANDWIDTH\=(\d+),.*', item,  flags=re.IGNORECASE|re.UNICODE)
-				if match:
-					#print(match.group(1))
-					#print(data[index+1])
-					bitrate = int(match.group(1))
-					if bitrate > maxbitrate:
-						maxbitrate=bitrate
-						maxurlapp= data[index+1]
-						print(maxbitrate)
-			if maxurlapp != "xx":
-				maxbitrateurl = hls + '/'  + maxurlapp
-				to_print_d(maxbitrateurl)
-				return maxbitrateurl
-			else:
-				print(f'Error processing bitrate of {url}')
-				window.add_txt(f'Error processing bitrate')
-				return url
+			return maxbrhls(matcheshls)
 		else:
 			return url
+
+def processwmv(matches):
+	return None
+
+def maxbrhls(matches):
+	url = matches.group(1)
+	print(f'attempting to access {url}')
+	html = urllib.request.urlopen(url + '/master.m3u8').read()
+	string =  html.decode("UTF-8").strip()
+	data = string.strip().splitlines()
+	print(data)
+	maxbitrate = 0 
+	maxurlapp = "xx"
+	for index, item in enumerate(data):
+		#print(item)
+		match = re.match(r'.*BANDWIDTH\=(\d+),.*', item,  flags=re.IGNORECASE|re.UNICODE)
+		if match:
+			#print(match.group(1))
+			#print(data[index+1])
+			bitrate = int(match.group(1))
+			if bitrate > maxbitrate:
+				maxbitrate=bitrate
+				maxurlapp= data[index+1]
+				print(maxbitrate)
+	if maxurlapp != "xx":
+		maxbitrateurl = url + '/'  + maxurlapp
+		to_print_d(maxbitrateurl)
+		return maxbitrateurl
+	else:
+		print(f'Error processing bitrate of {url}')
+		window.add_txt(f'Error processing bitrate')
+		return url
 
 def json2ts(string):
 	timestamp = ""
@@ -1133,7 +1174,7 @@ def aquire_session(sessiondec, thread="output"):
 	group = sessiondec['SessionGroup']
 	media = sessiondec['streams']
 	datetimets = float(sessiondec['StartTime'])
-	print('session: {session}, datetimets:  {datetimets}')
+	print(f'session: {session}, datetimets:  {datetimets}')
 	date = datetime.datetime.fromtimestamp(datetimets)
 	chaptersraw = sessiondec['Timestamps']
 	abstract = sessiondec['SessionAbstract']
@@ -1431,7 +1472,7 @@ defaults['Cookies'] = {'ASPXAUTH': '', 'sandboxCookie': '', 'csrfToken': '', 'yo
 excluded_groups_data =["Getting Started with Panopto", "Featured Videos - Panopto Homepage (Not open links)"]
 defaults['Modifiers']= {'group_regex': r"^.*?\:\s(\d{2})\/(\d{2})\-(.*)", 'excluded_groups': json.dumps(excluded_groups_data), 'only_groups': "[]", 'excluded_session_ids': "[]"}
 defaults['Settings'] = {'istest':False, 'num_treads': 3, 'queueLength':1000}
-defaults['StreamTypes'] = {'Archival': 'Camera', 'Streaming':'Projector'}
+defaults['StreamTypes'] = {'Archival': 'Camera', 'Streaming':'Projector', 'Encoded':'Encoded'}
 
 global basedir, netloc, excluded_groups, only_groups, group_regex, istest, window, queueLock, exitFlag, pauseFlag, csvfile, seshfile, groupsfile, workQueue, threads, win_outputs, SessionsInfo, processes
 
