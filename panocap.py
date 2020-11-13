@@ -904,21 +904,29 @@ def maxbrurl(url):
 			hls = matcheshls.group(1)
 			html = urllib.request.urlopen(url).read()
 			string =  html.decode("UTF-8").strip()
-			data = string.strip().split("\r\n")
+			data = string.strip().splitlines()
+			print(data)
 			maxbitrate = 0 
 			maxurlapp = "xx"
 			for index, item in enumerate(data):
 				#print(item)
 				match = re.match(r'.*BANDWIDTH\=(\d+),.*', item,  flags=re.IGNORECASE|re.UNICODE)
 				if match:
+					#print(match.group(1))
+					#print(data[index+1])
 					bitrate = int(match.group(1))
 					if bitrate > maxbitrate:
 						maxbitrate=bitrate
 						maxurlapp= data[index+1]
-						#print(maxbitrate)
-			maxbitrateurl = hls + '/'  + maxurlapp
-			to_print_d(maxbitrateurl)
-			return maxbitrateurl
+						print(maxbitrate)
+			if maxurlapp != "xx":
+				maxbitrateurl = hls + '/'  + maxurlapp
+				to_print_d(maxbitrateurl)
+				return maxbitrateurl
+			else:
+				print(f'Error processing bitrate of {url}')
+				window.add_txt(f'Error processing bitrate')
+				return url
 		else:
 			return url
 
