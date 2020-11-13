@@ -24,7 +24,7 @@ import configparser
 import logging
 
 settingsfl = 'settings.ini'
-version = '2.9'
+version = '3.1'
 
 class gui():
 	#constructor called on creation
@@ -45,22 +45,38 @@ class gui():
 		#main frame
 		frame = Frame(main, background = 'white')
 		frame.pack()
+		frame.rowconfigure(0, weight=1)
+		frame.columnconfigure(0, weight=1)
+		frame.rowconfigure(1, weight=1)
+		frame.columnconfigure(1, weight=1)
+		frame.rowconfigure(2, weight=1)
+		frame.columnconfigure(2, weight=1)
+		frame.rowconfigure(3, weight=1)
+		frame.columnconfigure(3, weight=1)
 
 		#creating each widget
+		
 		frame_left = Frame(frame, background = 'white')
-		frame_left.pack( side = LEFT, fill=BOTH)
+		#frame_left.pack( side = LEFT, fill=BOTH, expand=True)
+		frame_left.grid(row = 1, column = 1)
+		frame_left.rowconfigure(1, weight=1)
+		frame_left.columnconfigure(1, weight=1)
+		
 
 		output_label_widget = Label(frame_left, text="General Output", font=("Helvetica", 14))
 		output_label_widget.grid(row = 1, column = 1)
-		output_widget = Text(frame_left, bg = 'black', fg = '#D3D3D3', padx = 20, pady = 20, width=40, height=20, wrap = WORD)
+		output_widget = Text(frame_left, bg = 'black', fg = '#D3D3D3', padx = 10, pady = 10, height=20, wrap = WORD)
 		output_widget.grid(row = 2, column = 1)
 		ffmpeg_label_widget = Label(frame_left, text="ffmpeg Output", font=("Helvetica", 14))
 		ffmpeg_label_widget.grid(row = 3, column = 1)
-		ffmpeg_widget = Text(frame_left, bg = 'black', fg = '#D3D3D3', padx = 20, pady = 20, width=40, height=20, wrap = WORD)
+		ffmpeg_widget = Text(frame_left, bg = 'black', fg = '#D3D3D3', padx = 10, pady = 10, height=20, wrap = WORD)
 		ffmpeg_widget.grid(row = 4, column = 1)
 
-		frame_middle = Frame(frame, background = 'white', width=40)
-		frame_middle.pack( side = LEFT)
+		frame_middle = Frame(frame, background = 'white')
+		#frame_middle.pack( side = LEFT, fill=BOTH, expand=True)
+		frame_middle.grid(row = 1, column = 2)
+		frame_middle.rowconfigure(1, weight=1)
+		frame_middle.columnconfigure(1, weight=1)
 
 		title_widget = Label(frame_middle, text="PanoCap", font=("Helvetica", 20))
 		title_widget.grid(row = 1, column = 1)
@@ -117,7 +133,10 @@ class gui():
 		button_exit.grid(row = 1, column = 6)
 
 		frame_right = Frame(frame, background = 'white')
-		frame_right.pack( side = LEFT, fill=BOTH)
+		#frame_right.pack( side = LEFT, fill=BOTH, expand=True)
+		frame_right.grid(row = 1, column = 3)
+		frame_right.rowconfigure(1, weight=1)
+		frame_right.columnconfigure(1, weight=1)
 
 		#Widget dictionary for access
 		self.widgets = {
@@ -147,11 +166,11 @@ class gui():
 			treads[i].grid(row = (i+1), column = 1)
 			self.widgets[label] = treads[i]
 			ii = 3*n+1
-			treads.append(Label(frame_right, text='ffmpeg', width=70, font=("Helvetica", 12)))
+			treads.append(Label(frame_right, text='thread', font=("Helvetica", 12)))
 			treads[ii].grid(row = (ii+1), column = 1)
 			self.widgets[ffmpeg] = treads[ii]
 			iii = 3*n+2
-			treads.append(Text(frame_right, bg = 'black', fg = '#D3D3D3', padx = 5, pady = 5, wrap = WORD, width=80, height=12))
+			treads.append(Text(frame_right, bg = 'black', fg = '#D3D3D3', padx = 5, pady = 5, wrap = WORD, height=12))
 			treads[iii].grid(row = (iii+1), column = 1)
 			treads[iii].config(state = DISABLED)
 			self.widgets[threadname] = treads[iii]
