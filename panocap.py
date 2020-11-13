@@ -329,6 +329,7 @@ class gui():
 	def call_save_json(self):
 		jsontofile(seshfile, self.records)
 		csvtofile(csvfile, self.records)
+		jsontofile(groupsfile, conn.groups)
 
 	def repeater(self):
 		global win_outputs, processes
@@ -385,7 +386,13 @@ class gui():
 			count+=1
 
 	def add_node(self, widget, parent='', iid=None, row=(), text=None, index=0):
-		self.widgets[widget].insert(parent, index, iid=iid, text=text, values=row)
+		print(self.widgets[widget])
+		print(iid)
+		if self.widgets[widget].exists(iid):
+			self.widgets[widget].item(iid, text=text, values=row)
+		else:
+			self.widgets[widget].insert(parent, index, iid=iid, text=text, values=row)
+		
 			
 	def onDoubleClick(self, event):
 		''' Executed, when a row is double-clicked. Opens 
@@ -478,7 +485,7 @@ class threaders(threading.Thread):
 									if key in sessionInfo:
 										sessionInfo[key] = value
 							SessionsInfo[sessionInfo['SessionGroupID']][sessionid] = sessionInfo
-							add_session_row(sessionInfo)
+							add_session_row(sessionInfo, groupid)
 						else:
 							to_print_d("No streams for: " + sessionid, widget=self.name)
 					else:
@@ -509,7 +516,14 @@ class connection():
 	
 
 	def __init__(self):
-		self.groups = {'000':{'Name':'Unsorted','AncestorID':'000'}}
+		if os.path.exists(groupsfile):
+			print('Checking for previous group data')
+			with open(groupsfile, "r") as text_file:
+				data=text_file.read()
+				if data.strip() != "":
+					self.groups = json.loads(data)
+		else:
+			self.groups = {'000':{'Name':'Unsorted','AncestorID':'000'}}
 		self.attempts=0
 
 	def set_cookies(self, cookies):
@@ -779,14 +793,15 @@ class connection():
 
 	def GetSessionsInfo(self, records):
 		to_print_d('Getting Session Info')
-		global queueLock, workQueue, SessionsInfo, SessionsInfoCSV, seshfile, threads
+		global queueLock, workQueue, SessionsInfo, SessionsInfoCSV, seshfile, groupsfile, threads
 		SessionsInfoOld = {}
-		seshfile="sessionstore.json"
+		#seshfile="sessionstore.json"
+		#groupsfile="groupstore.json"
 		if os.path.exists(seshfile):
 			window.add_txt('Checking for previous data downloaded')
 			with open(seshfile, "r") as text_file:
 				data=text_file.read()
-				if (data) != "":
+				if data.strip() != "":
 					SessionsInfoOld = json.loads(data)
 		SessionsInfoCSV = {}
 		if os.path.exists(csvfile):
@@ -824,7 +839,7 @@ class connection():
 
 								
 					SessionsInfo[groupid][sessionid] = sessionInfoOld
-					add_session_row(sessionInfoOld)
+					add_session_row(sessionInfoOld, groupid)
 				else:
 					window.add_txt('Using new data')
 					workQueue.put({'GetSession': {'sessionid':sessionid, 'groupid':groupid}})		
@@ -847,8 +862,9 @@ class connection():
 			print(f'zlib.error: {e}')
 			return None
 
-def add_session_row(sessionInfo):
+def add_session_row(sessionInfo, groupid):
 	logging.info(json.dumps(sessionInfo))
+	print(groupid)
 	SessionID = str(sessionInfo['SessionID'])
 	SessionName = str(sessionInfo['SessionName'])
 	SessionAbstract = str(sessionInfo['SessionAbstract'])
@@ -859,7 +875,7 @@ def add_session_row(sessionInfo):
 	Duration = str(int(float(sessionInfo['Duration'])/60)) + 'mins'
 	streams = len(sessionInfo['streams'])
 	row = (SessionName,SessionAbstract,StartTime,Duration,streams)
-	window.add_node('tree1', parent=sessionInfo['SessionGroupID'], text=SessionID, row=row)
+	window.add_node('tree1', iid=SessionID, parent=groupid, text=SessionID, row=row)
 
 
 def to_print_d(inputstr, widget="output"):
@@ -1117,6 +1133,7 @@ def aquire_session(sessiondec, thread="output"):
 	group = sessiondec['SessionGroup']
 	media = sessiondec['streams']
 	datetimets = float(sessiondec['StartTime'])
+	print('session: {session}, datetimets:  {datetimets}')
 	date = datetime.datetime.fromtimestamp(datetimets)
 	chaptersraw = sessiondec['Timestamps']
 	abstract = sessiondec['SessionAbstract']
@@ -1404,7 +1421,8 @@ defaults={}
 settings={}
 defaults['Directories'] = {'basedir': 'C:/streams',
 						 'netloc': '//server/unimplemented',
-						 'seshfile': 'sessionsjson.data',
+						 'seshfile': 'sessionstore.json',
+						 'groupsfile': 'groupstore.json',
 						 'csvfile': 'session_meta.csv',
 						 'logfile': 'debug.log'}
 defaults['Cookies'] = {'ASPXAUTH': '', 'sandboxCookie': '', 'csrfToken': '', 'yourid': ''}
@@ -1415,7 +1433,7 @@ defaults['Modifiers']= {'group_regex': r"^.*?\:\s(\d{2})\/(\d{2})\-(.*)", 'exclu
 defaults['Settings'] = {'istest':False, 'num_treads': 3, 'queueLength':1000}
 defaults['StreamTypes'] = {'Archival': 'Camera', 'Streaming':'Projector'}
 
-global basedir, netloc, excluded_groups, only_groups, group_regex, istest, window, queueLock, exitFlag, pauseFlag, csvfile, seshfile, workQueue, threads, win_outputs, SessionsInfo, processes
+global basedir, netloc, excluded_groups, only_groups, group_regex, istest, window, queueLock, exitFlag, pauseFlag, csvfile, seshfile, groupsfile, workQueue, threads, win_outputs, SessionsInfo, processes
 
 get_settings(settingsfl)
 #print (settings)
@@ -1423,6 +1441,7 @@ get_settings(settingsfl)
 basedir = settings['Directories']['basedir']
 netloc = settings['Directories']['netloc']
 seshfile = settings['Directories']['seshfile']
+groupsfile = settings['Directories']['groupsfile']
 csvfile = settings['Directories']['csvfile']
 logfile = settings['Directories']['logfile']
 
