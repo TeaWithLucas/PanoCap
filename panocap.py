@@ -246,6 +246,8 @@ class gui():
 			self.current_stage = "start"
 			self.setup_next_stage()
 		else:
+			self.current_stage = "setcookies"
+			self.widgets['btn_save'].config(state = NORMAL)
 			self.add_txt("Error, possible invalid or expired cookies...")
 
 	def setup_next_stage(self):
@@ -253,9 +255,10 @@ class gui():
 		pauseFlag = 1
 		idlethreads = 0
 		for t in threads:
+			#if t.idle:
 			idlethreads += t.idle
 		#print(workQueue.empty(), idlethreads, len(threads))
-		if workQueue.empty() and (idlethreads >= len(threads)):
+		if workQueue.empty() and idlethreads >= len(threads) and not exitFlag:
 			pauseFlag = 0
 			if self.current_stage == "start":
 				self.records = SessionsInfo
@@ -288,11 +291,16 @@ class gui():
 					self.current_stage = "init"
 				else:
 					self.add_txt("Invalid or expired cookies...Please try again...")
+				self.widgets['btn_exit'].config(state = NORMAL)
 			self.set_lbl("Click to continue")
 		else:
-			if exitFlag and idlethreads >= len(threads):
-				self.set_lbl("Bye!")
-				exit()
+			if exitFlag:
+				print(idlethreads)
+				if idlethreads >= len(threads):
+					print("exiting...")
+					self.set_lbl("Bye!")
+					self.main.destroy()
+					exit()
 			else:
 				self.main.after(1000, self.setup_next_stage)
 
@@ -462,6 +470,7 @@ class threaders(threading.Thread):
 	def run(self):
 		to_print_d("Starting " + self.name,  self.name)
 		self.process_data(self.name)
+		self.idle = 1
 		to_print_d(self.name + " has stopped",  self.name)
 	def process_data(self, threadName):
 		global window, queueLock, workQueue, conn, SessionsInfo, exitFlag, pauseFlag
@@ -476,8 +485,9 @@ class threaders(threading.Thread):
 					to_print(self.name + " - Working", widget=self.lablel)
 					sessionid = datas['GetSession']['sessionid']
 					groupid = datas['GetSession']['groupid']
+					sessionindex = datas['GetSession']['sessionindex']
 					to_print_d("Processing: " + sessionid, widget=self.name)
-					sessionInfo = conn.GetSession(sessionid, groupid, self.name)
+					sessionInfo = conn.GetSession(sessionid, groupid, sessionindex, self.name)
 					if sessionInfo != None:
 						if len(sessionInfo['streams']) > 0:
 							if sessionid in SessionsInfoCSV:
@@ -523,7 +533,7 @@ class connection():
 				if data.strip() != "":
 					self.groups = json.loads(data)
 		else:
-			self.groups = {'000':{'Name':'Unsorted','AncestorID':'000'}}
+			self.groups = {'000':{'Name':'Miscellaneous','AncestorID':'000'}}
 		self.attempts=0
 
 	def set_cookies(self, cookies):
@@ -625,7 +635,7 @@ class connection():
 				if 'FolderName' in record and record['FolderName'] != None:
 					defaultName = regexgroup(record['FolderName']) 
 				else:
-					defaultName = 'Unsorted'
+					defaultName = 'Miscellaneous'
 				#print(DeliveryID)
 				
 				print('Processing: ' + DeliveryID + ' in ' + defaultName)
@@ -633,7 +643,7 @@ class connection():
 				
 				if 'FolderID' in record:
 					groupID = record['FolderID']
-				elif defaultName != 'Unsorted':
+				elif defaultName != 'Miscellaneous':
 					errtxt = f'Error: No group ID, defaultName: {defaultName}, attempting reverse lookup'
 					print(errtxt)
 					window.add_txt(errtxt)
@@ -676,7 +686,7 @@ class connection():
 			else:
 				print('Broken record: ')
 				print(record)
-		print(self.groups)
+		#print(self.groups)
 		return {key: records[key] for key in sorted(records.keys(), key=lambda item: self.groups[item]['Name'])}
 		
 	def GetAncestorGroup(self, FolderID):
@@ -737,7 +747,7 @@ class connection():
 		else:
 			return None
 
-	def GetSession(self, sessionid, groupid, thread="output"):
+	def GetSession(self, sessionid, groupid, sessionindex, thread="output"):
 		body = "deliveryId=" + sessionid + "&invocationId=&isLiveNotes=false&refreshAuthCookie=false&isActiveBroadcast=false&isEditing=false&isKollectiveAgentInstalled=false&isEmbed=false&responseType=json"
 		
 		url = 'https://cardiff.cloud.panopto.eu/Panopto/Pages/Viewer/DeliveryInfo.aspx'
@@ -762,7 +772,8 @@ class connection():
 				Duration = data['Delivery']['Duration']
 				Timestamps = data['Delivery']['Timestamps']
 
-				name = fixsessionname(SessionName, SessionGroup)
+				print()
+				name = fixsessionname(SessionName, SessionGroup, sessionindex)
 
 				if SessionAbstract == "Presented by":
 					SessionAbstract = name
@@ -848,6 +859,7 @@ class connection():
 						SessionsInfoCSV[row['SessionID']] = {'StartTime':StartTime,'SessionName':row['SessionName'], 'SessionAbstract':row['SessionAbstract']}
 		queueLock.acquire()
 		for groupid, sessionids in records.items():
+			grouplist = list(sessionids)
 			group = self.groups[groupid]
 			#print('Adding to queue for Group: ' + group['Name'])
 			window.add_txt('Adding to queue for Group: ' + group['Name'])
@@ -858,6 +870,7 @@ class connection():
 			SessionsInfo[groupid] = {}
 			for sessionidtmp in sessionids:
 				sessionid = sessionidtmp['DeliveryID']
+				sessionindex = len(grouplist) - grouplist.index(sessionidtmp)
 				window.add_txt(sessionid + ": ", end="")
 				if groupid in SessionsInfoOld and sessionid in SessionsInfoOld[groupid]:
 					window.add_txt('Using previous data')
@@ -867,7 +880,7 @@ class connection():
 						sessionInfoOld['SessionAbstract'] = SessionsInfoCSV[sessionid]['SessionAbstract']
 						timedifference = float(sessionInfoOld['StartTime']) - SessionsInfoCSV[sessionid]['StartTime']
 						
-						if timedifference < -3200 or timedifference > 3200 :
+						if timedifference < -320 or timedifference > 320 :
 							sessionInfoOld['StartTime'] = str(SessionsInfoCSV[sessionid]['StartTime'])
 
 								
@@ -875,7 +888,7 @@ class connection():
 					add_session_row(sessionInfoOld, groupid)
 				else:
 					window.add_txt('Using new data')
-					workQueue.put({'GetSession': {'sessionid':sessionid, 'groupid':groupid}})		
+					workQueue.put({'GetSession': {'sessionid':sessionid, 'groupid':groupid, 'sessionindex':sessionindex}})		
 		queueLock.release()
 		window.add_txt('Processing queue')
 		
@@ -932,7 +945,7 @@ def jsontofile(file, data):
 def csvtofile(file, data):
 	with open(file, 'w') as csv_file:
 		fieldnames=['StartTime', 'SessionName','SessionAbstract','SessionID', 'SessionGroup']
-		csv_writer = csv.DictWriter(csv_file, dialect='excel', fieldnames=fieldnames)
+		csv_writer = csv.DictWriter(csv_file, dialect='excel', fieldnames=fieldnames, lineterminator='\n')
 		window.add_txt('Dumping CSV')
 		csv_writer.writeheader()
 		for groupname, group in data.items():
@@ -1009,15 +1022,15 @@ def regexgroup(group):
 		if match:
 			group = match.group(1) + '-' + match.group(2) + ' ' + match.group(3)
 	else:
-		group = "miscellaneous"
+		group = "Miscellaneous"
 	return group
 
-def fixsessionname(name, group):
+def fixsessionname(name, group, sessionindex):
 	newname = gp_year = gp_module = gp_title = ""
 	group_split_regex = r"^(\d{2})\-(\d{2})\s(\w{2}\d{4})\s(.*)"
 	date_regex = r"([\d]{2,4}[\/\\\-\.]\d{2}[\/\\\-\.]\d{2,4})"
 	if name:
-		tmpname = re.sub(date_regex, "", name)
+		newname = re.sub(date_regex, "", name)
 		groupmatch = re.match(group_split_regex, group)
 		if groupmatch:
 			gp_year1 = groupmatch.group(1) +"-"+groupmatch.group(2)
@@ -1025,21 +1038,26 @@ def fixsessionname(name, group):
 			gp_year3 = groupmatch.group(1) + groupmatch.group(2)
 			gp_module, gp_title= groupmatch.group(3), groupmatch.group(4)
 			
-			tmpname = tmpname.replace(gp_year1, "").replace(gp_year2, "").replace(gp_year3, "").replace(gp_module, "").replace(gp_title, "")
-		tmpname = re.sub(r"^\s*\-\s*", "", tmpname)
-		tmpname = re.sub(r"\s+", " ", tmpname.strip())
-		if gp_title != "":
-			newname = gp_title
-			if tmpname != "":
-				newname += " - "
-		newname += tmpname
-	return newname
-
+			newname = newname.replace(gp_year1, "").replace(gp_year2, "").replace(gp_year3, "").replace(gp_module, "").replace(gp_title, "")
+		newname = re.sub(r"^\s*\-\s*", "", newname)
+		newname = re.sub(r"\s+", " ", newname.strip())
+		if newname != None and newname != "" and re.sub(r"[^\w]", "", newname) != "":
+			if newname == "Lecture":
+				return f'Lecture {sessionindex}'
+			elif newname == "Tutorial":
+				return f'Tutorial {sessionindex}'
+			else:
+				return newname
+		else:
+			return f'Session {sessionindex}'
+	else:
+		return f'Session {sessionindex+1}'
+		
 def norm_fn(inp):
 	string = str(inp)
 	string = re.sub('[\[]', '(', string)
 	string = re.sub('[\]]', ')', string)
-	string = re.sub('[^\w\,\(\)\-_\.:\s\\//]', '_', string)
+	string = re.sub('[^\w\,\(\)_\.:\-\s\\//]', '_', string)
 	string = re.sub('[\\//\.:]', '-', string)
 	return string
 
@@ -1062,7 +1080,7 @@ def write_csv_dict(loc, listdict, headers):
 	if os.path.exists(loc):
 		shutil.move(loc, loc + ".old")
 	with open(loc, 'w', newline='') as csvfile:
-		writer = csv.DictWriter(csvfile, quoting=csv.QUOTE_ALL, fieldnames=headers)
+		writer = csv.DictWriter(csvfile, dialect='excel', quoting=csv.QUOTE_ALL, fieldnames=headers)
 		writer.writeheader()
 		for row in listdict:
 			writer.writerow(row)
@@ -1098,7 +1116,7 @@ def gen_date_strs(datetimets):
 
 def gen_dwnld_fn(DateStrSave, session):
 		#name = date.strftime('%Y-%m-%d') + ' ' + session
-	name = DateStrSave + " - " + session
+	name = f'{DateStrSave} - {session}'
 	return name
 
 def get_download_locs(group, name):
@@ -1192,7 +1210,7 @@ def aquire_session(sessiondec, thread="output"):
 		outloc = ""
 		#chaptertemp = "ffmetatemp"+thread+".data"
 		#outname = "test-" + name + ".mp4"
-		title = DateStrUser + " " + session
+		title = f'{session} ({DateStrUser})'
 		metadata = {"title":title, "author":"Cardiff University", "grouping":group, "year":YearStr, "comment":"Created by PanoCap", "genre":"Educational", "tags":"Educational", "description":abstract, "synopsis":abstract, "creation_time":DateStrMeta, "DateTimeOriginal":DateStrMeta, "DateTime":DateStrMeta, "date":DateStrMeta}
 
 		#args = '-i 1.mp4 -i 2.mp4 -i 3.mp4 -i 4.mp4 -map 0 -map 1 -map 2 -map 3 -metadata:s:v:0 title=Cover -metadata:s:a:0 language=eng -t 30 -c:v copy  -c:a copy a.mp4'
