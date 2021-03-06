@@ -94,24 +94,14 @@ class gui():
 		frame_cookies.grid(row = 5, column = 1)
 
 		self.cookie_aspath_var = StringVar()
-		self.cookie_sandbox_var = StringVar() 
-		self.cookie_csrfToken_var = StringVar()
 		self.cookie_yourid_var = StringVar()
 
 		cookie_aspath_label_widget = Label(frame_cookies, text="ASPXAUTH", font=("Helvetica", 12))
 		cookie_aspath_label_widget.grid(row = 1, column = 1)
-		cookie_sandbox_label_widget = Label(frame_cookies, text="sandboxCookie", font=("Helvetica", 12))
-		cookie_sandbox_label_widget.grid(row = 1, column = 2)
-		cookie_csrfToken_label_widget = Label(frame_cookies, text="csrfToken", font=("Helvetica", 12))
-		cookie_csrfToken_label_widget.grid(row = 1, column = 3)
 		cookie_yourid_label_widget = Label(frame_cookies, text="Your ID", font=("Helvetica", 12))
 		cookie_yourid_label_widget.grid(row = 1, column = 4)		
 		cookie_aspath_widget = Entry(frame_cookies, textvariable=self.cookie_aspath_var, bg = 'black', fg = 'white', insertbackground ='white')
 		cookie_aspath_widget.grid(row = 2, column = 1)
-		cookie_sandbox_widget = Entry(frame_cookies, textvariable=self.cookie_sandbox_var, bg = 'black', fg = 'white', insertbackground ='white')
-		cookie_sandbox_widget.grid(row = 2, column = 2)
-		cookie_csrfToken_widget = Entry(frame_cookies, textvariable=self.cookie_csrfToken_var, bg = 'black', fg = 'white', insertbackground ='white')
-		cookie_csrfToken_widget.grid(row = 2, column = 3)
 		cookie_yourid_widget = Entry(frame_cookies, textvariable=self.cookie_yourid_var, bg = 'black', fg = 'white', insertbackground ='white')
 		cookie_yourid_widget.grid(row = 2, column = 4)
 
@@ -151,8 +141,6 @@ class gui():
 			'btn_save' : button_save,
 			'btn_exit' : button_exit,
 			'cookie_aspath' : cookie_aspath_widget,
-			'cookie_sandbox' : cookie_sandbox_widget,
-			'cookie_csrfToken' : cookie_csrfToken_widget,
 			'cookie_yourid' : cookie_yourid_widget
 		}
 
@@ -185,8 +173,6 @@ class gui():
 		self.widgets['btn_save'].config(state = DISABLED)
 		self.widgets['btn_exit'].config(state = DISABLED)
 		self.widgets['cookie_aspath'].config(state = DISABLED)
-		self.widgets['cookie_sandbox'].config(state = DISABLED)
-		self.widgets['cookie_csrfToken'].config(state = DISABLED)
 		self.widgets['cookie_yourid'].config(state = DISABLED)
 
 
@@ -208,8 +194,6 @@ class gui():
 
 	def check_cookies(self):
 		self.cookie_aspath_var.set(settings['Cookies']['ASPXAUTH'])
-		self.cookie_sandbox_var.set(settings['Cookies']['sandboxCookie'])
-		self.cookie_csrfToken_var.set(settings['Cookies']['csrfToken'])
 		self.cookie_yourid_var.set(settings['Cookies']['yourid'])
 		self.current_stage = "setcookies"
 		if settings['Cookies']['ASPXAUTH'] == "":
@@ -218,8 +202,6 @@ class gui():
 		else:
 			self.set_lbl("Cookies Found... Please Wait...")
 		self.widgets['cookie_aspath'].config(state = NORMAL)
-		self.widgets['cookie_sandbox'].config(state = DISABLED)
-		self.widgets['cookie_csrfToken'].config(state = DISABLED)
 		self.widgets['cookie_yourid'].config(state = NORMAL)
 		self.widgets['btn_save'].config(state = NORMAL)
 
@@ -274,17 +256,13 @@ class gui():
 				self.widgets['btn_exit'].config(state = NORMAL)
 			if self.current_stage == "setcookies":
 				settings['Cookies']['ASPXAUTH'] = self.cookie_aspath_var.get()
-				settings['Cookies']['sandboxCookie'] = self.cookie_sandbox_var.get()
-				settings['Cookies']['csrfToken'] = self.cookie_csrfToken_var.get()
 				settings['Cookies']['yourid'] = self.cookie_yourid_var.get()
 				write_settings(settings, settingsfl)
-				cookies = 'UserSettings=LastLoginMembershipProvider=CLAWSBlackboard; .ASPXAUTH='+settings['Cookies']['ASPXAUTH']+'; sandboxCookie='+settings['Cookies']['sandboxCookie']+'; csrfToken='+settings['Cookies']['csrfToken']+'; clawsblackboard\\'+settings['Cookies']['yourid']+'={"defaultVolume":100,"defaultBitrateMBR":2}; CLAWSBlackboard\\'+settings['Cookies']['yourid']+'={"navBarSection":1}'
+				cookies = 'UserSettings=LastLoginMembershipProvider=CLAWSBlackboard; .ASPXAUTH='+settings['Cookies']['ASPXAUTH']+'; clawsblackboard\\'+settings['Cookies']['yourid']+'={"defaultVolume":100,"defaultBitrateMBR":2}; CLAWSBlackboard\\'+settings['Cookies']['yourid']+'={"navBarSection":1}'
 				conn.set_cookies(cookies)
 				if conn.TestConnection():
 					self.add_txt("Correct cookies")
 					self.widgets['cookie_aspath'].config(state = DISABLED)
-					self.widgets['cookie_sandbox'].config(state = DISABLED)
-					self.widgets['cookie_csrfToken'].config(state = DISABLED)
 					self.widgets['cookie_yourid'].config(state = DISABLED)
 					self.widgets['btn_save'].config(state = DISABLED)
 					self.widgets['btn_start'].config(state = NORMAL)
@@ -575,12 +553,15 @@ class connection():
 			return None
 		
 	def TestConnection(self):
+	
+		global targets;
+		
 		self.attempts+=1
 
 		window.add_txt('Testing Cookies: Attempt ' + str(self.attempts))
 
 		bodydict = {"queryParameters":{"query":None, "page":0, "startDate":None,"endDate":None}}
-		url = "https://cardiff.cloud.panopto.eu/Panopto/Services/Data.svc/GetSessions"
+		url = targets['urltarget'] + "/Services/Data.svc/GetSessions"
 		
 		headers={"Content-Type": "application/json; charset=utf-8"}
 
@@ -616,7 +597,10 @@ class connection():
 			"isSharedWithMe":False,
 			"includePlaylists":True
 			}}
-		url = "https://cardiff.cloud.panopto.eu/Panopto/Services/Data.svc/GetSessions"
+			
+		global targets;
+		
+		url = targets['urltarget'] + "/Services/Data.svc/GetSessions"
 		
 		headers={"Content-Type": "application/json; charset=utf-8"}
 
@@ -704,7 +688,10 @@ class connection():
 			"isSharedWithMe":False,
 			"includePlaylists":True}
 			}		
-		url = "https://cardiff.cloud.panopto.eu/Panopto/Services/Data.svc/GetSessions"
+			
+		global targets;
+		
+		url = targets['urltarget'] + "/Services/Data.svc/GetSessions"
 		
 		headers={"Content-Type": "application/json; charset=utf-8"}
 		
@@ -724,8 +711,11 @@ class connection():
 			return FolderID
 			
 	def GetGroupData(self, FolderID):
-		bodydict = {"folderID":FolderID}		
-		url = "https://cardiff.cloud.panopto.eu/Panopto/Services/Data.svc/GetFolderInfo"
+		bodydict = {"folderID":FolderID}
+		
+		global targets;
+		
+		url = targets['urltarget'] + "/Services/Data.svc/GetFolderInfo"
 		
 		headers={"Content-Type": "application/json; charset=utf-8"}
 		
@@ -750,7 +740,9 @@ class connection():
 	def GetSession(self, sessionid, groupid, sessionindex, thread="output"):
 		body = "deliveryId=" + sessionid + "&invocationId=&isLiveNotes=false&refreshAuthCookie=false&isActiveBroadcast=false&isEditing=false&isKollectiveAgentInstalled=false&isEmbed=false&responseType=json"
 		
-		url = 'https://cardiff.cloud.panopto.eu/Panopto/Pages/Viewer/DeliveryInfo.aspx'
+		global targets;
+		
+		url = targets['urltarget'] + '/Pages/Viewer/DeliveryInfo.aspx'
 		
 		headers={"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"}
 		
@@ -771,6 +763,9 @@ class connection():
 				StartTime = win2unixts(data['Delivery']['SessionStartTime'])
 				Duration = data['Delivery']['Duration']
 				Timestamps = data['Delivery']['Timestamps']
+				Contributors = data['Delivery']['Contributors']
+				Owner = data['Delivery']['OwnerDisplayName']
+
 
 				print()
 				name = fixsessionname(SessionName, SessionGroup, sessionindex)
@@ -778,7 +773,7 @@ class connection():
 				if SessionAbstract == "Presented by":
 					SessionAbstract = name
 				to_print_d("working on: " + name, widget=thread)
-				session = {'SessionID':sessionid, 'SessionName':name, 'SessionGroupID':SessionGroupID, 'SessionGroup':SessionGroup, 'SessionAbstract':SessionAbstract, 'StartTime':StartTime, 'Duration':Duration, 'Timestamps':Timestamps, 'streams':[]}
+				session = {'SessionID':sessionid, 'SessionName':name, 'SessionGroupID':SessionGroupID, 'SessionGroup':SessionGroup, 'SessionAbstract':SessionAbstract, 'StartTime':StartTime, 'Duration':Duration, 'Timestamps':Timestamps, 'Contributors' : Contributors, 'Owner' : Owner, 'streams':[]}
 				
 				if data['Delivery']['IsPurgedEncode']:
 					embeddedurlmatches = re.match(r'.*src="(.*?)".*', data['EmbedUrl'],  flags=re.IGNORECASE|re.UNICODE)
@@ -1120,18 +1115,20 @@ def gen_dwnld_fn(DateStrSave, session):
 	return name
 
 def get_download_locs(group, name):
-	x265_loc, raw_loc, meta_loc = get_download_flrs(group)
+	x265_loc, raw_loc, meta_loc, sources_loc = get_download_flrs(group)
 	fn_compress = x265_loc + name + '.mp4'
 	fn_raw = raw_loc + name + '.mp4'
 	fn_meta = meta_loc + name + '.meta'
-	return fn_raw, fn_compress, fn_meta
+	fn_slides = sources_loc + name + '.source'
+	return fn_raw, fn_compress, fn_meta, fn_slides
 
 def check_download_flrs(group):
-	x265_loc, raw_loc, meta_loc = get_download_flrs(group)
+	x265_loc, raw_loc, meta_loc, sources_loc = get_download_flrs(group)
 
 	#chkflexst(x265_loc)
 	chkflexst(raw_loc)
 	chkflexst(meta_loc)
+	chkflexst(sources_loc)
 
 def get_download_flrs(group):
 	global basedir
@@ -1142,7 +1139,8 @@ def get_download_flrs(group):
 	x265_loc = locbasedir + group_norm + ' (x265)/'
 	raw_loc = locbasedir + group_norm + '/'
 	meta_loc = locbasedir + 'metadata/' + group_norm + '/'
-	return x265_loc, raw_loc, meta_loc
+	sources_loc = locbasedir + 'sources/' + group_norm + '/'
+	return x265_loc, raw_loc, meta_loc, sources_loc
 
 def group_included(group):
 	global excluded_groups, only_groups
@@ -1188,6 +1186,9 @@ def compress_sessions(groups):
 	queueLock.release()
 
 def aquire_session(sessiondec, thread="output"):
+
+	global defaultOptions, targets
+	
 	session = sessiondec['SessionName']
 	group = sessiondec['SessionGroup']
 	media = sessiondec['streams']
@@ -1197,13 +1198,23 @@ def aquire_session(sessiondec, thread="output"):
 	chaptersraw = sessiondec['Timestamps']
 	abstract = sessiondec['SessionAbstract']
 	duration = sessiondec['Duration']
-
+	
+	
+	if 'Owner' in sessiondec:
+		author = sessiondec['Owner']
+	else :
+		if 'Contributors' in sessiondec and len(sessiondec['Contributors']) > 0:
+			author = sessiondec['Contributors'][0]['DisplayName']
+		else:
+			author = defaultOptions['author']
+		
+	
 
 	YearStr, DateStrSave, DateStrMeta, DateStrUser = gen_date_strs(datetimets)
 
 	name = gen_dwnld_fn(DateStrSave, session)
 
-	fn_raw, fn_compress, fn_meta = get_download_locs(group, name)
+	fn_raw, fn_compress, fn_meta, fn_slides = get_download_locs(group, name)
 
 	if not (os.path.exists(fn_raw)):
 		to_print_d('Aquiring Session: ' + name, widget=thread)
@@ -1211,11 +1222,60 @@ def aquire_session(sessiondec, thread="output"):
 		#chaptertemp = "ffmetatemp"+thread+".data"
 		#outname = "test-" + name + ".mp4"
 		title = f'{session} ({DateStrUser})'
-		metadata = {"title":title, "author":"Cardiff University", "grouping":group, "year":YearStr, "comment":"Created by PanoCap", "genre":"Educational", "tags":"Educational", "description":abstract, "synopsis":abstract, "creation_time":DateStrMeta, "DateTimeOriginal":DateStrMeta, "DateTime":DateStrMeta, "date":DateStrMeta}
+		metadata = {"title":title, "Commercial_name":author,  "artist":author, "author":author, "album_artist":author, "publisher": author, "copyright": author, "grouping":group, "year":YearStr, "comment":"Created by PanoCap", "genre":"Educational", "tags":"Educational", "synopsis":abstract, "description":abstract, "synopsis":abstract, "creation_time":DateStrMeta, "DateTimeOriginal":DateStrMeta, "DateTime":DateStrMeta, "date":DateStrMeta, "episode_id": DateStrMeta, "show":group}
 
 		#args = '-i 1.mp4 -i 2.mp4 -i 3.mp4 -i 4.mp4 -map 0 -map 1 -map 2 -map 3 -metadata:s:v:0 title=Cover -metadata:s:a:0 language=eng -t 30 -c:v copy  -c:a copy a.mp4'
 		args_pre = args_i = args_map = args_v_meta = args_output = args_aud = args_other = ""
 		count = 0
+		
+		slides = []
+		
+		with open(fn_slides, "w") as text_file:
+			to_print_d('writing slide data to: ' + fn_slides, widget=thread)
+			chapterno = 1
+			lastusedindex = 0
+			lastusedtitle = ""
+			
+			for index, slide in enumerate(chaptersraw):
+				if ('ObjectIdentifier' in slide and 'ObjectSequenceNumber' in slide):
+					slideID = slide['ObjectIdentifier']
+					slideNum = slide['ObjectSequenceNumber']
+					
+					imageUrl = "file '" + targets['urltarget'] + "/Pages/Viewer/Image.aspx?id=" + slideID + "&number=" + slideNum + "'"
+					
+					
+					startts = float(slide['Time'])
+					
+					if index == 0:
+						startts = 0
+					if index+1 == len(chaptersraw):
+						endts = startts + 0.1
+					else:
+						endts = float(chaptersraw[index+1]['Time'])
+					
+					imageDuration = "duration " + str(endts - startts)
+					
+					slides.append({'url' : imageUrl, 'duration' : imageDuration})
+
+			output = ""
+			if len(slides) > 0:
+				
+				for slide in slides:
+					output += slide['url'] + '\n'
+					output += slide['duration'] + '\n'
+				output += slides[len(slides)-1]['url'] #Due to a quirk, the last image has to be specified twice - the 2nd time without any duration directive) 
+				
+				
+			text_file.write(output.encode('ascii','ignore').decode())
+				
+		
+		if len(slides) > 0:
+			args_i += ' -safe 0 -protocol_whitelist file,http,https,tcp,tls -f concat -i "' + fn_slides + '"'
+			args_map += ' -map ' + str(count) + 'v:0'
+			args_v_meta += ' -metadata:s:v:' + str(count) + ' title="Slides"'
+			args_v_meta += ' -metadata:s:v:' + str(count) + ' language=eng'
+			count +=1
+		
 		for file in media:
 			streamtype = file['StreamTypeName']
 			if (streamtype in StreamTypes):
@@ -1267,6 +1327,9 @@ def aquire_session(sessiondec, thread="output"):
 				if index+1 == lengthchap:
 					output += "END=" + str(int(duration*1000)) + "\n" + lastusedtitle
 			text_file.write(output.encode('ascii','ignore').decode())
+		
+		
+		
 		args_i += ' -i "' + fn_meta + '"'
 		args_v_meta += ' -map_metadata ' + str(count)
 		#args_pre += "-y -hwaccel cuvid -c:v h264_cuvid"
@@ -1306,7 +1369,7 @@ def compress_session(sessiondec, thread="output"):
 
 	name = gen_dwnld_fn(DateStrSave, session)
 
-	fn_raw, fn_compress, fn_meta = get_download_locs(group, name)
+	fn_raw, fn_compress, fn_meta, fn_slides= get_download_locs(group, name)
 
 	if os.path.exists(fn_compress) and os.path.getsize(fn_compress) < 100000000:
 		os.remove(fn_compress)
@@ -1478,25 +1541,27 @@ global defaults, settings
 
 defaults={}
 settings={}
+defaults['Targets'] = {'urltarget': 'https://cardiff.cloud.panopto.eu/Panopto'}
 defaults['Directories'] = {'basedir': 'C:/streams',
 						 'netloc': '//server/unimplemented',
 						 'seshfile': 'sessionstore.json',
 						 'groupsfile': 'groupstore.json',
 						 'csvfile': 'session_meta.csv',
 						 'logfile': 'debug.log'}
-defaults['Cookies'] = {'ASPXAUTH': '', 'sandboxCookie': '', 'csrfToken': '', 'yourid': ''}
-
+defaults['Cookies'] = {'ASPXAUTH': '', 'yourid': ''}
+defaults['Defaults'] = {'author': 'Default Author'}
 
 excluded_groups_data =["Getting Started with Panopto", "Featured Videos - Panopto Homepage (Not open links)"]
 defaults['Modifiers']= {'group_regex': r"^.*?\:\s(\d{2})\/(\d{2})\-(.*)", 'excluded_groups': json.dumps(excluded_groups_data), 'only_groups': "[]", 'excluded_session_ids': "[]"}
 defaults['Settings'] = {'istest':False, 'num_treads': 3, 'queueLength':1000}
 defaults['StreamTypes'] = {'Archival': 'Camera', 'Streaming':'Projector', 'Encoded':'Encoded'}
 
-global basedir, netloc, excluded_groups, only_groups, group_regex, istest, window, queueLock, exitFlag, pauseFlag, csvfile, seshfile, groupsfile, workQueue, threads, win_outputs, SessionsInfo, processes
+global targets, basedir, netloc, excluded_groups, only_groups, group_regex, istest, defaultOptions, window, queueLock, exitFlag, pauseFlag, csvfile, seshfile, groupsfile, workQueue, threads, win_outputs, SessionsInfo, processes
 
 get_settings(settingsfl)
 #print (settings)
 
+targets = settings['Targets']
 basedir = settings['Directories']['basedir']
 netloc = settings['Directories']['netloc']
 seshfile = settings['Directories']['seshfile']
@@ -1516,7 +1581,7 @@ queueLength = int(settings['Settings']['queueLength'])
 
 StreamTypes = settings['StreamTypes']
 
-
+defaultOptions = settings['Defaults']
 
 logging.basicConfig(filename=logfile,level=logging.DEBUG)
 
