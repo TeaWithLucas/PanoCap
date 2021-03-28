@@ -973,6 +973,8 @@ class connection():
 				data=text_file.read()
 				if data.strip() != "":
 					data = json.loads(data)
+					if len(data) <= 0:
+						data = {}
 		return data
 		
 	def csv_file(self, path):
@@ -1032,7 +1034,8 @@ def to_print(inputstr, widget="output", date=False):
 def jsontofile(file, data):
 	with open(file, "w") as text_file:
 		window.add_txt('Dumping JSON Data')
-		encodedinfo = json.dumps(data, sort_keys=True, indent=4, separators=(',', ': '))
+		#encodedinfo = json.dumps(data, sort_keys=True, indent=4, separators=(',', ': '))
+		encodedinfo = json.dumps(data, sort_keys=True, separators=(',', ': '))
 		window.add_txt('Writing JSON Data')
 		text_file.write(encodedinfo)
 
