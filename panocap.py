@@ -24,7 +24,7 @@ import configparser
 import logging
 
 settingsfl = 'settings.ini'
-version = '3.1'
+version = 3.2
 
 class gui():
 	#constructor called on creation
@@ -32,7 +32,10 @@ class gui():
 		print(time.strftime('%y-%m-%d %H:%M:%S'), 'initialisng gui')
 
 		global threads, conn
-
+		
+		with open(logfile, 'w'):
+			pass
+		
 		self.running = True
 		self.title = title
 
@@ -313,9 +316,13 @@ class gui():
 		
 
 	def call_save_json(self):
-		jsontofile(seshfile, self.records)
-		csvtofile(csvfile, self.records)
+		cache = {
+			'data': self.records,
+			'version': version,
+		}
 		jsontofile(groupsfile, conn.groups)
+		jsontofile(seshfile, cache)
+		csvtofile(csvfile, self.records)
 
 	def repeater(self):
 		global win_outputs, processes
@@ -451,7 +458,7 @@ class threaders(threading.Thread):
 		self.idle = 1
 		to_print_d(self.name + " has stopped",  self.name)
 	def process_data(self, threadName):
-		global window, queueLock, workQueue, conn, SessionsInfo, exitFlag, pauseFlag
+		global window, queueLock, workQueue, conn, SessionsInfo, SessionsMeta, exitFlag, pauseFlag
 		while not exitFlag:
 			
 			queueLock.acquire()
@@ -464,18 +471,56 @@ class threaders(threading.Thread):
 					sessionid = datas['GetSession']['sessionid']
 					groupid = datas['GetSession']['groupid']
 					sessionindex = datas['GetSession']['sessionindex']
+					cachedData = {}
+					if 'cachedData' in datas['GetSession']:
+						cachedData = datas['GetSession']['cachedData']
+					
 					to_print_d("Processing: " + sessionid, widget=self.name)
+					print("Processing: " + sessionid)
 					sessionInfo = conn.GetSession(sessionid, groupid, sessionindex, self.name)
 					if sessionInfo != None:
-						if len(sessionInfo['streams']) > 0:
-							if sessionid in SessionsInfoCSV:
-								for key, value in SessionsInfoCSV.items():
+						if len(sessionInfo['Streams']) > 0:
+							
+							if len(cachedData) > 0:
+								to_print_d("Using online version using cached for: " + sessionid, widget=self.name)
+								for key, value in cachedData.items():
+									if key not in sessionInfo:
+										sessionInfo[key] = value
+								if 'Streams' in cachedData:
+									for cachedSteam in cachedData['Streams']:
+										found = False
+										for stream in sessionInfo['Streams']:
+											if cachedSteam['PublicID'] == stream['PublicID']:
+												found = True
+										if not found:
+											sessionInfo['Streams'].append(cachedSteam)
+								if 'Timestamps' in cachedData:
+									for cachedTS in cachedData['Timestamps']:
+										found = False
+										for stream in sessionInfo['Timestamps']:
+											if cachedTS['ID'] == stream['ID']:
+												found = True
+										if not found:
+											sessionInfo['Timestamps'].append(cachedTS)
+							else:
+								to_print_d("Using online version only for: " + sessionid, widget=self.name)
+							if sessionid in SessionsMeta:
+								for key, value in SessionsMeta[sessionid].items():
 									if key in sessionInfo:
 										sessionInfo[key] = value
 							SessionsInfo[sessionInfo['SessionGroupID']][sessionid] = sessionInfo
 							add_session_row(sessionInfo, groupid)
 						else:
 							to_print_d("No streams for: " + sessionid, widget=self.name)
+					elif len(cachedData) > 0:
+						to_print_d("No online version using cached for: " + sessionid, widget=self.name)
+						sessionInfo = cachedData
+						if sessionid in SessionsMeta:
+							for key, value in SessionsMeta[sessionid].items():
+								if key in sessionInfo:
+									sessionInfo[key] = value
+						SessionsInfo[sessionInfo['SessionGroupID']][sessionid] = sessionInfo
+						add_session_row(sessionInfo, groupid)
 					else:
 						to_print_d("Data error for: " + sessionid, widget=self.name)
 				if 'aquire_session' in datas:
@@ -511,7 +556,7 @@ class connection():
 				if data.strip() != "":
 					self.groups = json.loads(data)
 		else:
-			self.groups = {'000':{'Name':'Miscellaneous','AncestorID':'000'}}
+			self.groups = {'000':{'Name':'Miscellaneous','OrigName':'Miscellaneous','AncestorID':'000'}}
 		self.attempts=0
 
 	def set_cookies(self, cookies):
@@ -537,7 +582,7 @@ class connection():
 				resp = urllib.request.urlopen(req, cafile=cafileMain)
 				worked = True
 			except urllib.error.HTTPError as e:
-				errtxt = f'HTTPError: {e.code}, {e.reason}'
+				errtxt = f'HTTPError: {e}'
 				print(errtxt)
 				window.add_txt(errtxt)
 			attempts+=1
@@ -617,14 +662,14 @@ class connection():
 			if 'DeliveryID' in record and record['DeliveryID'] != None:
 				DeliveryID = record['DeliveryID']
 				if 'FolderName' in record and record['FolderName'] != None:
-					defaultName = regexgroup(record['FolderName']) 
+					defaultName = record['FolderName']
 				else:
 					defaultName = 'Miscellaneous'
 				#print(DeliveryID)
 				
 				print('Processing: ' + DeliveryID + ' in ' + defaultName)
 				window.add_txt('Processing: ' + DeliveryID + ' in ' + defaultName)
-				
+				groupID = '000'
 				if 'FolderID' in record:
 					groupID = record['FolderID']
 				elif defaultName != 'Miscellaneous':
@@ -634,13 +679,12 @@ class connection():
 					
 					for key, item in self.groups.items():
 						#print(item['Name'])
-						if item['Name'] == defaultName:
+						if item['OrigName'] == defaultName:
 							groupID = item['AncestorID']
-					if groupID == None:
+					if groupID == '000':
 						errtxt = f'Reverse lookup failed'
 						print(errtxt)
 						window.add_txt(errtxt)
-						groupID = '000'
 				else: 
 					errtxt = f'Error: No group ID, defaultName: {defaultName}'
 					print(errtxt)
@@ -651,10 +695,11 @@ class connection():
 					groupAncestorID = self.GetAncestorGroup(groupID)
 					self.groups[groupID] = self.GetGroupData(groupAncestorID)
 					if self.groups[groupID]['Name'] == None:
-						errtxt = f'Error: No empty group name, defaulting to: {defaultName}'
+						formattedName = regexgroup(defaultName) 
+						errtxt = f'Error: No empty group name, defaulting to: {formattedName}'
 						print(errtxt)
 						window.add_txt(errtxt)
-						self.groups[groupID]['Name'] = defaultName
+						self.groups[groupID]['Name'] = formattedName
 					if groupAncestorID not in self.groups:
 						self.groups[groupAncestorID] = self.groups[groupID]
 				else:
@@ -729,8 +774,8 @@ class connection():
 				window.add_txt('Ancestor Name: ' + data['d']['Name'])
 				return {
 					'Name':regexgroup(data['d']['Name']), 
+					'OrigName':data['d']['Name'], 
 					'AncestorID':FolderID
-					
 				}
 			else:
 				return None
@@ -753,18 +798,17 @@ class connection():
 			data = self.decode_json(dataraw)
 		
 			if 'Delivery' in data:
-
+				
 				#SessionGroup = norm_fn(data['Delivery']['SessionGroupLongName'])
 				SessionGroupID = groupid
 				SessionGroup = self.groups[groupid]['Name']
 				
+				session = data['Delivery']
+				
 				SessionName = norm_fn(data['Delivery']['SessionName'])
-				SessionAbstract = data['Delivery']['SessionAbstract']
 				StartTime = win2unixts(data['Delivery']['SessionStartTime'])
-				Duration = data['Delivery']['Duration']
-				Timestamps = data['Delivery']['Timestamps']
-				Contributors = data['Delivery']['Contributors']
 				Owner = data['Delivery']['OwnerDisplayName']
+				SessionAbstract = data['Delivery']['SessionAbstract']
 
 
 				print()
@@ -773,7 +817,15 @@ class connection():
 				if SessionAbstract == "Presented by":
 					SessionAbstract = name
 				to_print_d("working on: " + name, widget=thread)
-				session = {'SessionID':sessionid, 'SessionName':name, 'SessionGroupID':SessionGroupID, 'SessionGroup':SessionGroup, 'SessionAbstract':SessionAbstract, 'StartTime':StartTime, 'Duration':Duration, 'Timestamps':Timestamps, 'Contributors' : Contributors, 'Owner' : Owner, 'streams':[]}
+				
+				session['SessionID'] = sessionid
+				session['SessionName'] = SessionName
+				session['SessionGroupID'] = SessionGroupID
+				session['SessionGroup'] = SessionGroup
+				session['SessionAbstract'] = SessionAbstract
+				session['StartTime'] = StartTime
+				session['Owner'] = Owner
+				session['Streams'] = []
 				
 				if data['Delivery']['IsPurgedEncode']:
 					embeddedurlmatches = re.match(r'.*src="(.*?)".*', data['EmbedUrl'],  flags=re.IGNORECASE|re.UNICODE)
@@ -802,7 +854,7 @@ class connection():
 							if DownloadUrl != None:
 								Folder = SessionGroup + '/' + name
 								Path = Folder + '/' + Tag + '-' +  StreamTypeName + '-' + PublicID + '.' + ext
-								session['streams'].append({'PublicID':PublicID,'Folder':Folder,'Path':Path,'DownloadUrl':DownloadUrl,'Tag':Tag, 'StreamTypeName':StreamTypeName})
+								session['Streams'].append({'PublicID':PublicID,'Folder':Folder,'Path':Path,'DownloadUrl':DownloadUrl,'Tag':Tag, 'StreamTypeName':StreamTypeName})
 				#else:
 				for stream in data['Delivery']['Streams']:
 					StreamHttpUrl = stream['StreamHttpUrl']
@@ -819,7 +871,7 @@ class connection():
 					if DownloadUrl != None:
 						Folder = SessionGroup + '/' + name
 						Path = Folder + '/' + Tag + '-' +  StreamTypeName + '-' + PublicID + '.' + ext
-						session['streams'].append({'PublicID':PublicID,'Folder':Folder,'Path':Path,'DownloadUrl':DownloadUrl,'Tag':Tag, 'StreamTypeName':StreamTypeName})
+						session['Streams'].append({'PublicID':PublicID,'Folder':Folder,'Path':Path,'DownloadUrl':DownloadUrl,'Tag':Tag, 'StreamTypeName':StreamTypeName})
 				return session
 			else:
 				print('Error, invalid repsonse for session: ' + sessionid)
@@ -832,31 +884,26 @@ class connection():
 
 	def GetSessionsInfo(self, records):
 		to_print_d('Getting Session Info')
-		global queueLock, workQueue, SessionsInfo, SessionsInfoCSV, seshfile, groupsfile, threads
-		SessionsInfoOld = {}
-		#seshfile="sessionstore.json"
-		#groupsfile="groupstore.json"
-		if os.path.exists(seshfile):
-			window.add_txt('Checking for previous data downloaded')
-			with open(seshfile, "r") as text_file:
-				data=text_file.read()
-				if data.strip() != "":
-					SessionsInfoOld = json.loads(data)
-		SessionsInfoCSV = {}
-		if os.path.exists(csvfile):
-			window.add_txt('Reading CSV')
-			with open(csvfile, "r") as csv_file:
-				fieldnames=['StartTime', 'SessionName','SessionAbstract','SessionID']
-				csv_reader = csv.DictReader(csv_file, fieldnames=fieldnames)
-				for row in csv_reader:
-					if row['SessionID'] != "" and row['SessionID'] != "SessionID":
-						StartTime = time.mktime(datetime.datetime.strptime(row['StartTime'], '%Y-%m-%d %H-%M').timetuple())
-						SessionsInfoCSV[row['SessionID']] = {'StartTime':StartTime,'SessionName':row['SessionName'], 'SessionAbstract':row['SessionAbstract']}
+		global queueLock, workQueue, SessionsInfo, SessionsMeta, seshfile, groupsfile, threads
+
+		SessionsCached, preVersion = self.get_cached_sessions(seshfile)
+		
+		numSessions = 0
+		for key, group in SessionsCached.items():
+			print('cached group: ' + key + ', num sessions: ' + str(len(group)))
+			numSessions += len(group)
+		
+		window.add_txt('Previous Version: ' + str(preVersion) + ', number of cached sessions: ' + str(numSessions))
+		print('Previous Version: ' + str(preVersion) + ', number of cached sessions: ' + str(numSessions))
+		
+		SessionsMeta = self.get_stored_metadata(csvfile)
+
 		queueLock.acquire()
 		for groupid, sessionids in records.items():
 			grouplist = list(sessionids)
 			group = self.groups[groupid]
 			#print('Adding to queue for Group: ' + group['Name'])
+			print('Adding to queue for Group: ' + group['Name'])
 			window.add_txt('Adding to queue for Group: ' + group['Name'])
 			rowdata = (group['Name'], "Excluded")
 			if group_included(group['Name']):
@@ -867,28 +914,79 @@ class connection():
 				sessionid = sessionidtmp['DeliveryID']
 				sessionindex = len(grouplist) - grouplist.index(sessionidtmp)
 				window.add_txt(sessionid + ": ", end="")
-				if groupid in SessionsInfoOld and sessionid in SessionsInfoOld[groupid]:
-					window.add_txt('Using previous data')
-					sessionInfoOld = SessionsInfoOld[groupid][sessionid]
-					if sessionid in SessionsInfoCSV:
-						sessionInfoOld['SessionName'] = SessionsInfoCSV[sessionid]['SessionName']
-						sessionInfoOld['SessionAbstract'] = SessionsInfoCSV[sessionid]['SessionAbstract']
-						timedifference = float(sessionInfoOld['StartTime']) - SessionsInfoCSV[sessionid]['StartTime']
-						
-						if timedifference < -320 or timedifference > 320 :
-							sessionInfoOld['StartTime'] = str(SessionsInfoCSV[sessionid]['StartTime'])
-
-								
-					SessionsInfo[groupid][sessionid] = sessionInfoOld
-					add_session_row(sessionInfoOld, groupid)
+				print("session: " + sessionid)
+				if groupid in SessionsCached and sessionid in SessionsCached[groupid]:
+					SessionCached = SessionsCached[groupid][sessionid]
+					if preVersion >= 3.0:
+						window.add_txt('Using previous data')
+						print('Using previous data')
+						if sessionid in SessionsMeta:
+							for key, value in SessionsMeta[sessionid].items():
+								if key in SessionCached:
+									SessionCached[key] = value
+						SessionsInfo[groupid][sessionid] = SessionCached
+						add_session_row(SessionCached, groupid)
+					else:
+						window.add_txt('Using previous data from old version')
+						print('Using previous data from old version')
+						workQueue.put({'GetSession': {'sessionid':sessionid, 'groupid':groupid, 'sessionindex':sessionindex, 'cachedData': SessionsCached}})	
 				else:
-					window.add_txt('Using new data')
+					output = ""
+					if groupid not in SessionsCached:
+						output += 'Group: ' + groupid + ' not cached, '
+					elif sessionid not in SessionsCached[groupid]:
+						output += 'Session: ' + sessionid + ' not cached, '
+					output += 'Using new data'
+					window.add_txt(output)
+					print(output)
 					workQueue.put({'GetSession': {'sessionid':sessionid, 'groupid':groupid, 'sessionindex':sessionindex}})		
 		queueLock.release()
 		window.add_txt('Processing queue')
 		
+		
+	def get_cached_sessions(self, path):
+		window.add_txt('Checking for cached data downloaded')
+		previousData = self.json_file(path)
+		window.add_txt('Checking versions')
+		if 'version' in previousData:
+			print('new version processing')
+			window.add_txt('new version processing')
+			data = previousData['data']
+			preVersion = previousData['version']
+		else:
+			window.add_txt('old version processing')
+			print('old version processing')
+			data = previousData
+			preVersion = 0
+		return data, preVersion
+	
+	def get_stored_metadata(self, path):
+		window.add_txt('Checking for custom metadata')
+		metaData = self.csv_file(path)
+		return metaData
 
-
+	def json_file(self, path):
+		data = {}
+		if os.path.exists(path):
+			window.add_txt('Decoding json ' + path)
+			with open(path, "r") as text_file:
+				data=text_file.read()
+				if data.strip() != "":
+					data = json.loads(data)
+		return data
+		
+	def csv_file(self, path):
+		data = {}
+		if os.path.exists(csvfile):
+			window.add_txt('Decoding csv ' + path)
+			with open(csvfile, "r") as csv_file:
+				fieldnames=['StartTime', 'SessionName','SessionAbstract','SessionID']
+				csv_reader = csv.DictReader(csv_file, fieldnames=fieldnames)
+				for row in csv_reader:
+					if row['SessionID'] != "" and row['SessionID'] != "SessionID":
+						StartTime = time.mktime(datetime.datetime.strptime(row['StartTime'], '%Y-%m-%d %H-%M').timetuple())
+						data[row['SessionID']] = {'StartTime':StartTime,'SessionName':row['SessionName'], 'SessionAbstract':row['SessionAbstract']}
+		return data
 
 	def decode_json(self, string):
 		data = json.loads(string)
@@ -914,7 +1012,7 @@ def add_session_row(sessionInfo, groupid):
 	else:
 		StartTime = ""
 	Duration = str(int(float(sessionInfo['Duration'])/60)) + 'mins'
-	streams = len(sessionInfo['streams'])
+	streams = len(sessionInfo['Streams'])
 	row = (SessionName,SessionAbstract,StartTime,Duration,streams)
 	window.add_node('tree1', iid=SessionID, parent=groupid, text=SessionID, row=row)
 
@@ -935,6 +1033,7 @@ def jsontofile(file, data):
 	with open(file, "w") as text_file:
 		window.add_txt('Dumping JSON Data')
 		encodedinfo = json.dumps(data, sort_keys=True, indent=4, separators=(',', ': '))
+		window.add_txt('Writing JSON Data')
 		text_file.write(encodedinfo)
 
 def csvtofile(file, data):
@@ -1191,7 +1290,7 @@ def aquire_session(sessiondec, thread="output"):
 	
 	session = sessiondec['SessionName']
 	group = sessiondec['SessionGroup']
-	media = sessiondec['streams']
+	media = sessiondec['Streams']
 	datetimets = float(sessiondec['StartTime'])
 	print(f'session: {session}, datetimets:  {datetimets}')
 	date = datetime.datetime.fromtimestamp(datetimets)
@@ -1358,7 +1457,7 @@ def aquire_session(sessiondec, thread="output"):
 def compress_session(sessiondec, thread="output"):
 	session = sessiondec['SessionName']
 	group = sessiondec['SessionGroup']
-	media = sessiondec['streams']
+	media = sessiondec['Streams']
 	datetimets = float(sessiondec['StartTime'])
 	date = datetime.datetime.fromtimestamp(datetimets)
 	chapters = sessiondec['Timestamps']
@@ -1585,7 +1684,7 @@ defaultOptions = settings['Defaults']
 
 logging.basicConfig(filename=logfile,level=logging.DEBUG)
 
-title = "PanoCap v" + version + " " + datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+title = "PanoCap v" + str(version) + " " + datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
 win_outputs = {}
 exitFlag = pauseFlag = 0
