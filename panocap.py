@@ -24,7 +24,7 @@ import configparser
 import logging
 
 settingsfl = 'settings.ini'
-version = 3.2
+version = 4.1
 
 class gui():
 	#constructor called on creation
@@ -183,7 +183,7 @@ class gui():
 		console_widget.bind('<Return>', self.rtn_pressed)
 		self.tree.bind('<Double-Button-1>', self.onDoubleClick)
 		#self.set_columns('tree1', ('SessionID', 'SessionAbstract','StartTime', 'Duration', 'NumStreams'), ('Name', 'ID', 'Abstract','Time', 'Duration', 'Streams'))
-		column_data = [{'ID':'SessionID', 'Name':'ID', 'width':10},{'ID':'SessionName', 'Name':'Session Name', 'width':380},{'ID':'SessionAbstract', 'Name':'Abstract', 'width':250},{'ID':'StartTime', 'Name':'Date', 'width':90},{'ID':'Duration', 'Name':'Duration', 'width':60},{'ID':'NumStreams', 'Name':'Streams', 'width':55}]
+		column_data = [{'ID':'SessionID', 'Name':'ID', 'width':10},{'ID':'SessionName', 'Name':'Session Name', 'width':380},{'ID':'SessionAbstract', 'Name':'Abstract', 'width':250},{'ID':'StartTime', 'Name':'Date', 'width':90},{'ID':'Duration', 'Name':'Duration', 'width':60},{'ID':'NumStreams', 'Name':'streams', 'width':55}]
 		self.set_columns('tree1', column_data)
 		#Set focus on the console
 		#console_widget.focus_set()
@@ -217,7 +217,7 @@ class gui():
 		self.stage_man.navigate(self.get_input())
 
 	def call_start(self):
-		global conn, seshfile
+		global conn, cachefolder
 		print("Input - Start Button")
 		self.widgets['btn_start'].config(state = DISABLED)
 		self.set_lbl("Please Wait...")
@@ -316,12 +316,8 @@ class gui():
 		
 
 	def call_save_json(self):
-		cache = {
-			'data': self.records,
-			'version': version,
-		}
 		jsontofile(groupsfile, conn.groups)
-		jsontofile(seshfile, cache)
+		save_cache(self.records, version)
 		csvtofile(csvfile, self.records)
 
 	def repeater(self):
@@ -348,6 +344,7 @@ class gui():
 
 	#Appends text at the end of a widget
 	def add_txt(self, inputstr, widget="output", tag="", end="\n"):
+		print(inputstr)
 		self.widgets[widget].config(state = NORMAL)
 		if tag != "":
 			self.widgets[widget].insert(END, inputstr + end, tag)
@@ -479,21 +476,21 @@ class threaders(threading.Thread):
 					print("Processing: " + sessionid)
 					sessionInfo = conn.GetSession(sessionid, groupid, sessionindex, self.name)
 					if sessionInfo != None:
-						if len(sessionInfo['Streams']) > 0:
+						if len(sessionInfo['streams']) > 0:
 							
 							if len(cachedData) > 0:
 								to_print_d("Using online version using cached for: " + sessionid, widget=self.name)
 								for key, value in cachedData.items():
 									if key not in sessionInfo:
 										sessionInfo[key] = value
-								if 'Streams' in cachedData:
-									for cachedSteam in cachedData['Streams']:
+								if 'streams' in cachedData:
+									for cachedSteam in cachedData['streams']:
 										found = False
-										for stream in sessionInfo['Streams']:
+										for stream in sessionInfo['streams']:
 											if cachedSteam['PublicID'] == stream['PublicID']:
 												found = True
 										if not found:
-											sessionInfo['Streams'].append(cachedSteam)
+											sessionInfo['streams'].append(cachedSteam)
 								if 'Timestamps' in cachedData:
 									for cachedTS in cachedData['Timestamps']:
 										found = False
@@ -667,14 +664,12 @@ class connection():
 					defaultName = 'Miscellaneous'
 				#print(DeliveryID)
 				
-				print('Processing: ' + DeliveryID + ' in ' + defaultName)
 				window.add_txt('Processing: ' + DeliveryID + ' in ' + defaultName)
 				groupID = '000'
 				if 'FolderID' in record:
 					groupID = record['FolderID']
 				elif defaultName != 'Miscellaneous':
 					errtxt = f'Error: No group ID, defaultName: {defaultName}, attempting reverse lookup'
-					print(errtxt)
 					window.add_txt(errtxt)
 					
 					for key, item in self.groups.items():
@@ -683,11 +678,9 @@ class connection():
 							groupID = item['AncestorID']
 					if groupID == '000':
 						errtxt = f'Reverse lookup failed'
-						print(errtxt)
 						window.add_txt(errtxt)
 				else: 
 					errtxt = f'Error: No group ID, defaultName: {defaultName}'
-					print(errtxt)
 					window.add_txt(errtxt)
 					groupID = '000'
 					
@@ -697,7 +690,6 @@ class connection():
 					if self.groups[groupID]['Name'] == None:
 						formattedName = regexgroup(defaultName) 
 						errtxt = f'Error: No empty group name, defaulting to: {formattedName}'
-						print(errtxt)
 						window.add_txt(errtxt)
 						self.groups[groupID]['Name'] = formattedName
 					if groupAncestorID not in self.groups:
@@ -803,15 +795,14 @@ class connection():
 				SessionGroupID = groupid
 				SessionGroup = self.groups[groupid]['Name']
 				
-				session = data['Delivery']
-				
+				session = {}
+				for key, item in data['Delivery'].items():
+					session[key] = item
 				SessionName = norm_fn(data['Delivery']['SessionName'])
 				StartTime = win2unixts(data['Delivery']['SessionStartTime'])
 				Owner = data['Delivery']['OwnerDisplayName']
 				SessionAbstract = data['Delivery']['SessionAbstract']
-
-
-				print()
+				
 				name = fixsessionname(SessionName, SessionGroup, sessionindex)
 
 				if SessionAbstract == "Presented by":
@@ -819,15 +810,18 @@ class connection():
 				to_print_d("working on: " + name, widget=thread)
 				
 				session['SessionID'] = sessionid
-				session['SessionName'] = SessionName
+				session['SessionName'] = name
+				session['Name'] = name
 				session['SessionGroupID'] = SessionGroupID
 				session['SessionGroup'] = SessionGroup
 				session['SessionAbstract'] = SessionAbstract
 				session['StartTime'] = StartTime
 				session['Owner'] = Owner
+				session['streams'] = []
 				session['Streams'] = []
 				
 				if data['Delivery']['IsPurgedEncode']:
+					print('Purged stream, getting purged encode')
 					embeddedurlmatches = re.match(r'.*src="(.*?)".*', data['EmbedUrl'],  flags=re.IGNORECASE|re.UNICODE)
 					if(embeddedurlmatches):
 						embeddedurl = embeddedurlmatches.group(1)
@@ -844,7 +838,7 @@ class connection():
 							StreamUrl = videourl
 							StreamTypeName = 'Encoded'
 							Tag = 'NoTag'
-							PublicID = norm_fn(videourl)
+							PublicIDSafe = norm_fn(videourl)
 							#httpurlshort = StreamHttpUrl[:StreamHttpUrl.index("?")]
 							#ext = httpurlshort[-3:]
 							ext = 'mp4'
@@ -852,16 +846,26 @@ class connection():
 							#urlshort = StreamUrl[:StreamUrl.index("?")]
 							DownloadUrl = processurl(StreamUrl)
 							if DownloadUrl != None:
+								streamData = {}
 								Folder = SessionGroup + '/' + name
-								Path = Folder + '/' + Tag + '-' +  StreamTypeName + '-' + PublicID + '.' + ext
-								session['Streams'].append({'PublicID':PublicID,'Folder':Folder,'Path':Path,'DownloadUrl':DownloadUrl,'Tag':Tag, 'StreamTypeName':StreamTypeName})
+								Path = Folder + '/' + Tag + '-' +  StreamTypeName + '-' + PublicIDSafe + '.' + ext
+								streamData['PublicID'] = PublicIDSafe
+								streamData['Folder'] = Folder
+								streamData['Path'] = Path
+								streamData['DownloadUrl'] = DownloadUrl
+								streamData['Tag'] = Tag
+								streamData['StreamTypeName'] = StreamTypeName
+								streamData['PurgedEncodeStream'] = True
+								session['streams'].append(streamData)
 				#else:
-				for stream in data['Delivery']['Streams']:
-					StreamHttpUrl = stream['StreamHttpUrl']
-					StreamUrl = stream['StreamUrl']
-					StreamTypeName = norm_fn(stream['StreamTypeName'])
-					Tag = norm_fn(stream['Tag'])
-					PublicID = norm_fn(stream['PublicID'])
+				for sessStream in data['Delivery']['Streams']:
+					#print(sessStream)
+					print('Processing stream: ' + sessStream['PublicID'])
+					#StreamHttpUrl = sessStream['StreamHttpUrl']
+					StreamUrl = sessStream['StreamUrl']
+					StreamTypeName = norm_fn(sessStream['StreamTypeName'])
+					Tag = norm_fn(sessStream['Tag'])
+					PublicIDSafe = norm_fn(sessStream['PublicID'])
 					#httpurlshort = StreamHttpUrl[:StreamHttpUrl.index("?")]
 					#ext = httpurlshort[-3:]
 					ext = 'mp4'
@@ -869,9 +873,19 @@ class connection():
 					urlshort = StreamUrl[:StreamUrl.index("?")]
 					DownloadUrl = processurl(urlshort)
 					if DownloadUrl != None:
+						streamData = {}
+						for key, item in sessStream.items():
+							streamData[key] = item
+						
 						Folder = SessionGroup + '/' + name
-						Path = Folder + '/' + Tag + '-' +  StreamTypeName + '-' + PublicID + '.' + ext
-						session['Streams'].append({'PublicID':PublicID,'Folder':Folder,'Path':Path,'DownloadUrl':DownloadUrl,'Tag':Tag, 'StreamTypeName':StreamTypeName})
+						Path = Folder + '/' + Tag + '-' +  StreamTypeName + '-' + PublicIDSafe + '.' + ext
+						streamData['Folder'] = Folder
+						streamData['Path'] = Path
+						streamData['DownloadUrl'] = DownloadUrl
+						streamData['Tag'] = Tag
+						streamData['StreamTypeName'] = StreamTypeName
+						streamData['PurgedEncodeStream'] = False
+						session['streams'].append(streamData)
 				return session
 			else:
 				print('Error, invalid repsonse for session: ' + sessionid)
@@ -884,42 +898,52 @@ class connection():
 
 	def GetSessionsInfo(self, records):
 		to_print_d('Getting Session Info')
-		global queueLock, workQueue, SessionsInfo, SessionsMeta, seshfile, groupsfile, threads
-
-		SessionsCached, preVersion = self.get_cached_sessions(seshfile)
+		global queueLock, workQueue, SessionsInfo, SessionsMeta, groupsfile, threads
 		
-		numSessions = 0
-		for key, group in SessionsCached.items():
-			print('cached group: ' + key + ', num sessions: ' + str(len(group)))
-			numSessions += len(group)
-		
-		window.add_txt('Previous Version: ' + str(preVersion) + ', number of cached sessions: ' + str(numSessions))
-		print('Previous Version: ' + str(preVersion) + ', number of cached sessions: ' + str(numSessions))
-		
+		if not os.path.exists(cachefolder) and os.path.exists(seshfile):
+			window.add_txt('old seshfile processing')
+			OldSeshfile = self.json_file(seshfile)
+			if not isinstance(OldSeshfile, str) and len(OldSeshfile) > 0:
+				numSessions = 0
+				for key, group in OldSeshfile.items():
+					window.add_txt('old seshfile group: ' + key + ', num sessions: ' + str(len(group)))
+					numSessions += len(group)
+				
+				window.add_txt('number of old seshfile sessions: ' + str(numSessions))
+				save_cache(OldSeshfile, 0)
+				
 		SessionsMeta = self.get_stored_metadata(csvfile)
-
+		
+		# for entry in os.scandir(cachefolder):
+			# if entry.is_file() and entry.path.endsWith('.json') and entry.name.startsWith('cache'):
+				# window.add_txt('loading: ' + entry.name)
+				# print('loading: ' + entry.name)
+				
+		
 		queueLock.acquire()
 		for groupid, sessionids in records.items():
 			grouplist = list(sessionids)
 			group = self.groups[groupid]
-			#print('Adding to queue for Group: ' + group['Name'])
-			print('Adding to queue for Group: ' + group['Name'])
 			window.add_txt('Adding to queue for Group: ' + group['Name'])
 			rowdata = (group['Name'], "Excluded")
 			if group_included(group['Name']):
 				rowdata = (group['Name'], "Included")
 			window.add_node('tree1', iid=groupid, text='', row=rowdata, index='end')
 			SessionsInfo[groupid] = {}
+			cachePath = cache_fldr(groupid);
+			window.add_txt('Checking for group cache: ' + cachePath)
+			cacheGroup, cacheVer = self.get_cached_sessions(cachePath)
+			window.add_txt('Number of cached sessions: ' + str(len(cacheGroup)))
+			
 			for sessionidtmp in sessionids:
 				sessionid = sessionidtmp['DeliveryID']
 				sessionindex = len(grouplist) - grouplist.index(sessionidtmp)
-				window.add_txt(sessionid + ": ", end="")
-				print("session: " + sessionid)
-				if groupid in SessionsCached and sessionid in SessionsCached[groupid]:
-					SessionCached = SessionsCached[groupid][sessionid]
-					if preVersion >= 3.0:
+				window.add_txt('Session: ' + sessionid + ": ", end="")
+				
+				if sessionid in cacheGroup:
+					SessionCached = cacheGroup[sessionid]
+					if cacheVer >= 4.0:
 						window.add_txt('Using previous data')
-						print('Using previous data')
 						if sessionid in SessionsMeta:
 							for key, value in SessionsMeta[sessionid].items():
 								if key in SessionCached:
@@ -927,37 +951,25 @@ class connection():
 						SessionsInfo[groupid][sessionid] = SessionCached
 						add_session_row(SessionCached, groupid)
 					else:
-						window.add_txt('Using previous data from old version')
-						print('Using previous data from old version')
-						workQueue.put({'GetSession': {'sessionid':sessionid, 'groupid':groupid, 'sessionindex':sessionindex, 'cachedData': SessionsCached}})	
+						window.add_txt('Updating cache from old version')
+						workQueue.put({'GetSession': {'sessionid':sessionid, 'groupid':groupid, 'sessionindex':sessionindex, 'cachedData': cacheGroup[sessionid]}})	
 				else:
-					output = ""
-					if groupid not in SessionsCached:
-						output += 'Group: ' + groupid + ' not cached, '
-					elif sessionid not in SessionsCached[groupid]:
-						output += 'Session: ' + sessionid + ' not cached, '
-					output += 'Using new data'
+					output = 'Not cached, Using new data'
 					window.add_txt(output)
-					print(output)
 					workQueue.put({'GetSession': {'sessionid':sessionid, 'groupid':groupid, 'sessionindex':sessionindex}})		
 		queueLock.release()
 		window.add_txt('Processing queue')
 		
-		
 	def get_cached_sessions(self, path):
 		window.add_txt('Checking for cached data downloaded')
 		previousData = self.json_file(path)
-		window.add_txt('Checking versions')
-		if 'version' in previousData:
-			print('new version processing')
-			window.add_txt('new version processing')
+		data = {}
+		preVersion = 0
+		if 'data' in previousData:
 			data = previousData['data']
+		if 'version' in previousData:
 			preVersion = previousData['version']
-		else:
-			window.add_txt('old version processing')
-			print('old version processing')
-			data = previousData
-			preVersion = 0
+			
 		return data, preVersion
 	
 	def get_stored_metadata(self, path):
@@ -973,8 +985,6 @@ class connection():
 				data=text_file.read()
 				if data.strip() != "":
 					data = json.loads(data)
-					if len(data) <= 0:
-						data = {}
 		return data
 		
 	def csv_file(self, path):
@@ -1014,7 +1024,7 @@ def add_session_row(sessionInfo, groupid):
 	else:
 		StartTime = ""
 	Duration = str(int(float(sessionInfo['Duration'])/60)) + 'mins'
-	streams = len(sessionInfo['Streams'])
+	streams = len(sessionInfo['streams'])
 	row = (SessionName,SessionAbstract,StartTime,Duration,streams)
 	window.add_node('tree1', iid=SessionID, parent=groupid, text=SessionID, row=row)
 
@@ -1033,9 +1043,8 @@ def to_print(inputstr, widget="output", date=False):
 
 def jsontofile(file, data):
 	with open(file, "w") as text_file:
-		window.add_txt('Dumping JSON Data')
-		#encodedinfo = json.dumps(data, sort_keys=True, indent=4, separators=(',', ': '))
-		encodedinfo = json.dumps(data, sort_keys=True, separators=(',', ': '))
+		window.add_txt('Dumping JSON Data for ' + file)
+		encodedinfo = json.dumps(data, sort_keys=True, indent=4, separators=(',', ': '))
 		window.add_txt('Writing JSON Data')
 		text_file.write(encodedinfo)
 
@@ -1051,6 +1060,20 @@ def csvtofile(file, data):
 				if float(session['StartTime']) > 0:
 					StartTime = datetime.datetime.fromtimestamp(float(session['StartTime'])).strftime('%Y-%m-%d %H-%M')
 				csv_writer.writerow({'SessionID': sessionid, 'StartTime': StartTime, 'SessionName': session['SessionName'], 'SessionAbstract': session['SessionAbstract'], 'SessionGroup': session['SessionGroup']})
+
+
+def save_cache(records, ver):
+	chkflexst(cachefolder)
+	for group, record in records.items():
+		cache = {
+			'version': ver,
+			'data': record,
+		}
+		
+		jsontofile(cache_fldr(group), cache)
+
+def cache_fldr(group):
+	return f'{cachefolder}/gcache-{group}.json'
 
 def processurl(url):
 	print(url)
@@ -1074,7 +1097,7 @@ def maxbrhls(matches):
 	html = urllib.request.urlopen(url + '/master.m3u8').read()
 	string =  html.decode("UTF-8").strip()
 	data = string.strip().splitlines()
-	print(data)
+	#print(data)
 	maxbitrate = 0 
 	maxurlapp = "xx"
 	for index, item in enumerate(data):
@@ -1293,7 +1316,7 @@ def aquire_session(sessiondec, thread="output"):
 	
 	session = sessiondec['SessionName']
 	group = sessiondec['SessionGroup']
-	media = sessiondec['Streams']
+	media = sessiondec['streams']
 	datetimets = float(sessiondec['StartTime'])
 	print(f'session: {session}, datetimets:  {datetimets}')
 	date = datetime.datetime.fromtimestamp(datetimets)
@@ -1460,7 +1483,7 @@ def aquire_session(sessiondec, thread="output"):
 def compress_session(sessiondec, thread="output"):
 	session = sessiondec['SessionName']
 	group = sessiondec['SessionGroup']
-	media = sessiondec['Streams']
+	media = sessiondec['streams']
 	datetimets = float(sessiondec['StartTime'])
 	date = datetime.datetime.fromtimestamp(datetimets)
 	chapters = sessiondec['Timestamps']
@@ -1626,6 +1649,7 @@ def get_settings(configloc):
 					settings[key][setting]=value
 		else:
 			settings[key]=section
+	write_settings(settings, configloc)
 
 def default_settings(configloc):
 	global defaults
@@ -1647,6 +1671,7 @@ defaults['Targets'] = {'urltarget': 'https://cardiff.cloud.panopto.eu/Panopto'}
 defaults['Directories'] = {'basedir': 'C:/streams',
 						 'netloc': '//server/unimplemented',
 						 'seshfile': 'sessionstore.json',
+						 'cachefolder': 'cache',
 						 'groupsfile': 'groupstore.json',
 						 'csvfile': 'session_meta.csv',
 						 'logfile': 'debug.log'}
@@ -1658,7 +1683,7 @@ defaults['Modifiers']= {'group_regex': r"^.*?\:\s(\d{2})\/(\d{2})\-(.*)", 'exclu
 defaults['Settings'] = {'istest':False, 'num_treads': 3, 'queueLength':1000}
 defaults['StreamTypes'] = {'Archival': 'Camera', 'Streaming':'Projector', 'Encoded':'Encoded'}
 
-global targets, basedir, netloc, excluded_groups, only_groups, group_regex, istest, defaultOptions, window, queueLock, exitFlag, pauseFlag, csvfile, seshfile, groupsfile, workQueue, threads, win_outputs, SessionsInfo, processes
+global targets, basedir, netloc, excluded_groups, only_groups, group_regex, istest, defaultOptions, window, queueLock, exitFlag, pauseFlag, csvfile, cachefolder, groupsfile, workQueue, threads, win_outputs, SessionsInfo, processes
 
 get_settings(settingsfl)
 #print (settings)
@@ -1667,6 +1692,7 @@ targets = settings['Targets']
 basedir = settings['Directories']['basedir']
 netloc = settings['Directories']['netloc']
 seshfile = settings['Directories']['seshfile']
+cachefolder = settings['Directories']['cachefolder']
 groupsfile = settings['Directories']['groupsfile']
 csvfile = settings['Directories']['csvfile']
 logfile = settings['Directories']['logfile']

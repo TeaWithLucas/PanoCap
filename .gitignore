@@ -8,3 +8,5 @@ ffplay.exe
 sessionstore.json
 groupstore.json
 session_meta - Copy.csv
+*.bak
+gcache*.json
